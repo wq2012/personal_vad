@@ -1,0 +1,15 @@
+*~
+*.pyc
+__pycache__/
+build/*
+dist/*
+*.egg-info/*
+.coverage
+.DS_Store
+.pytype
+coverage.xml
+.venv
+docs/
+*.tflite
+*.npz
+*.h5
