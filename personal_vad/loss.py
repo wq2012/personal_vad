@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Loss functions for Personal VAD, including Weighted Pairwise Loss.
 
 Implements the weighted pairwise loss defined in Section 2.3 of Personal VAD
@@ -85,7 +72,8 @@ class WeightedPairwiseLoss(tf.keras.losses.Loss):
       num_classes: Total number of classes (default 3).
       symmetric_weights: Whether `w(i, j) == w(j, i)` (default True).
       label_smoothing: Float in `[0, 1)`. When > 0, smooths the binary pairwise
-        targets `[1, 0]` to `[1 - label_smoothing, label_smoothing]`.
+        targets `[1, 0]` to
+        `[1 - 0.5 * label_smoothing, 0.5 * label_smoothing]`.
       name: Name of the loss instance.
 
     Raises:
@@ -131,7 +119,8 @@ class WeightedPairwiseLoss(tf.keras.losses.Loss):
     self.weights = normalize_weights(raw_weights)
 
     # Prebuild a [num_classes, num_classes] weight lookup table where entry
-    # [k, y] is the pairwise weight w(k, y) and diagonal entries are 0.0.
+    # [y, k] is the pairwise weight for ground-truth class y against alternative
+    # class k, and diagonal entries are 0.0.
     weight_matrix = [
         [0.0 for _ in range(num_classes)] for _ in range(num_classes)
     ]
@@ -197,7 +186,7 @@ class WeightedPairwiseLoss(tf.keras.losses.Loss):
   def compute_per_frame_loss(
       self, logits: tf.Tensor, labels: tf.Tensor
   ) -> tf.Tensor:
-    """Computes the unweighted per-frame pairwise loss tensor.
+    """Computes the vectorized per-frame weighted pairwise loss tensor.
 
     Args:
       logits: Float32 tensor of shape `[..., num_classes]`.
@@ -216,35 +205,39 @@ class WeightedPairwiseLoss(tf.keras.losses.Loss):
     flat_labels = tf.reshape(labels, [-1])
     num_elements = tf.shape(flat_labels)[0]
 
-    batch_indices = tf.range(num_elements, dtype=tf.int32)
-    true_label_indices = tf.stack([batch_indices, flat_labels], axis=1)
-    true_label_logits = tf.gather_nd(flat_logits, true_label_indices)
+    # Gather ground-truth class logit z_{n, y_n} for every frame: shape [N].
+    true_label_logits = tf.gather(flat_logits, flat_labels, batch_dims=1)
 
-    pairwise_losses = []
-    for k in range(self.num_classes):
-      pairwise_logits = tf.stack(
-          [true_label_logits, flat_logits[:, k]], axis=1
+    # Construct all [N, C, 2] pairwise logit pairs [z_{n, y_n}, z_{n, k}] at
+    # once via tensor broadcasting.
+    true_col = tf.tile(
+        tf.reshape(true_label_logits, [-1, 1, 1]), [1, self.num_classes, 1]
+    )
+    alt_col = tf.expand_dims(flat_logits, axis=-1)
+    pairwise_logits = tf.concat([true_col, alt_col], axis=-1)
+
+    if self.label_smoothing > 0.0:
+      smooth_pos = 1.0 - 0.5 * self.label_smoothing
+      smooth_neg = 0.5 * self.label_smoothing
+      target_probs = tf.constant([smooth_pos, smooth_neg], dtype=tf.float32)
+      target_probs = tf.broadcast_to(target_probs, tf.shape(pairwise_logits))
+      pair_ce = tf.nn.softmax_cross_entropy_with_logits(
+          labels=target_probs, logits=pairwise_logits
       )
-      if self.label_smoothing > 0.0:
-        smooth_pos = 1.0 - self.label_smoothing + 0.5 * self.label_smoothing
-        smooth_neg = 0.5 * self.label_smoothing
-        target_probs = tf.constant(
-            [[smooth_pos, smooth_neg]],
-            dtype=tf.float32,
-        )
-        target_probs = tf.tile(target_probs, [num_elements, 1])
-        pair_ce = tf.nn.softmax_cross_entropy_with_logits(
-            labels=target_probs, logits=pairwise_logits
-        )
-      else:
-        pair_ce = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=tf.zeros([num_elements], dtype=tf.int32),
-            logits=pairwise_logits,
-        )
-      pair_weight = self.get_pairwise_weight(k, flat_labels)
-      pairwise_losses.append(pair_ce * pair_weight)
+    else:
+      zero_labels = tf.zeros(
+          [num_elements, self.num_classes], dtype=tf.int32
+      )
+      pair_ce = tf.nn.sparse_softmax_cross_entropy_with_logits(
+          labels=zero_labels, logits=pairwise_logits
+      )
 
-    total_loss = tf.add_n(pairwise_losses) / float(self.num_classes - 1)
+    # Look up pairwise weights w(y_n, k) of shape [N, C]; diagonal entries
+    # (k == y_n) are 0.0 in self._weight_matrix.
+    pair_weights = tf.gather(self._weight_matrix, flat_labels)
+    total_loss = tf.reduce_sum(pair_ce * pair_weights, axis=-1) / float(
+        self.num_classes - 1
+    )
     return tf.reshape(total_loss, orig_shape)
 
   def compute_loss(

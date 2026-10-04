@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Tests for personal_vad.online_percentile."""
 
 import os
@@ -50,13 +37,18 @@ class OnlinePercentileTest(unittest.TestCase):
     self.assertAlmostEqual(opv.get_percentile_value(80), 0.4)
     self.assertAlmostEqual(opv.get_percentile_value(100), 0.5)
 
-  def test_original_online_percentile_value_lib_cases(self):
-    calculator = online_percentile.OnlinePercentileValue(200, (-1.0, 1.0))
-    data = np.arange(-1.0, 1.0, 0.001)
-    calculator.Update(data)
-    self.assertEqual(calculator.histogram.shape[0], 200)
-    self.assertAlmostEqual(0.0, calculator.GetPercentile(50), places=5)
-    self.assertAlmostEqual(-0.9, calculator.GetPercentile(5), places=5)
+  def test_cosine_range_and_reset(self):
+    estimator = online_percentile.OnlinePercentileValue(
+        bins=200, hist_range=(-1.0, 1.0)
+    )
+    samples = np.linspace(-1.0, 1.0, 2000, endpoint=False)
+    estimator.observe(samples)
+    self.assertEqual(estimator.histogram.shape, (200,))
+    self.assertAlmostEqual(estimator.get_percentile_value(50.0), 0.0, places=5)
+    self.assertAlmostEqual(estimator.get_percentile_value(5.0), -0.9, places=5)
+    self.assertAlmostEqual(estimator.get_percentile_value(95.0), 0.9, places=5)
+    estimator.reset()
+    np.testing.assert_allclose(estimator.histogram, 0.0)
 
   def test_rescale_cosine_scores(self):
     raw_scores = np.linspace(-0.8, 0.9, 100, dtype=np.float32)

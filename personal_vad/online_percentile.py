@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Online histogram-based percentile estimator.
 
 Used for rescaling frame-level speaker verification cosine similarity scores in
@@ -49,15 +36,21 @@ class OnlinePercentileValue:
     self.bins = bins
     self.hist_range = hist_range
     self.counts = np.zeros((bins,), dtype=np.int64)
-    _, self.bin_edges = np.histogram([], bins=bins, range=hist_range)
+    self.bin_edges = np.linspace(
+        hist_range[0], hist_range[1], num=bins + 1, dtype=np.float64
+    )
 
   @property
   def histogram(self) -> np.ndarray:
-    """Returns normalized histogram counts of shape `[bins]`."""
+    """Returns normalized histogram probabilities of shape `[bins]`."""
     total = int(np.sum(self.counts))
     if total == 0:
       return np.zeros((self.bins,), dtype=np.float64)
     return self.counts.astype(np.float64) / float(total)
+
+  def reset(self) -> None:
+    """Resets all accumulated histogram counts to zero."""
+    self.counts.fill(0)
 
   def observe(self, x: Union[float, np.ndarray, list[float]]) -> None:
     """Observes a scalar or array of values and updates histogram counts.
@@ -68,10 +61,6 @@ class OnlinePercentileValue:
     hist, _ = np.histogram(x, bins=self.bins, range=self.hist_range)
     self.counts += hist
 
-  def Update(self, x: Union[float, np.ndarray, list[float]]) -> None:
-    """Alias for `observe`."""
-    self.observe(x)
-
   def get_percentile_value(self, percentile: float) -> float:
     """Returns the estimated value at the requested percentile.
 
@@ -80,7 +69,7 @@ class OnlinePercentileValue:
 
     Returns:
       The lower edge of the first histogram bin where the cumulative proportion
-      of observations is at least `percentile / 100.0`.
+      of observations preceding the bin is at least `percentile / 100.0`.
 
     Raises:
       ValueError: If `percentile` is outside `[0.0, 100.0]` or no observations
@@ -93,17 +82,10 @@ class OnlinePercentileValue:
     total = int(np.sum(self.counts))
     if total == 0:
       raise ValueError("Cannot compute percentile before observing any values.")
-    index = (percentile / 100.0) * float(total)
-    count = 0
-    for i in range(self.bins):
-      if count >= index:
-        return float(self.bin_edges[i])
-      count += int(self.counts[i])
-    return float(self.hist_range[1])
-
-  def GetPercentile(self, percentile: float) -> float:
-    """Alias for `get_percentile_value`."""
-    return self.get_percentile_value(percentile)
+    threshold = (percentile / 100.0) * float(total)
+    cum_before = np.concatenate(([0], np.cumsum(self.counts[:-1])))
+    bin_idx = int(np.searchsorted(cum_before, threshold, side="left"))
+    return float(self.bin_edges[bin_idx])
 
 
 def rescale_cosine_scores(

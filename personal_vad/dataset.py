@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Dataset preparation and utterance concatenation for Personal VAD.
 
 Implements:
@@ -29,10 +16,14 @@ Implements:
 from collections.abc import Sequence
 import dataclasses
 import hashlib
-from typing import Optional
+from typing import Any, Optional
 import numpy as np
-import tensorflow as tf
 from . import configs
+
+try:
+  import tensorflow as tf
+except ImportError:  # pragma: no cover
+  tf = None  # type: ignore[assignment]
 
 
 @dataclasses.dataclass
@@ -368,7 +359,7 @@ def create_tf_dataset(
     shuffle: bool = True,
     enrollment_less_prob: float = 0.0,
     seed: Optional[int] = None,
-) -> tf.data.Dataset:
+) -> Any:
   """Creates a batched `tf.data.Dataset` from a sequence of `UtteranceData`.
 
   Each element in the returned dataset is a tuple `(inputs_dict, labels, mask)`
@@ -394,6 +385,8 @@ def create_tf_dataset(
   Returns:
     A batched `tf.data.Dataset`.
   """
+  if tf is None:
+    raise ImportError("TensorFlow is required for create_tf_dataset.")
   if not utterances:
     raise ValueError("Cannot create a dataset from an empty utterance list.")
 

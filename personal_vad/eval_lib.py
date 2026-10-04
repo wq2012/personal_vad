@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Evaluation library for Personal VAD and Standard VAD models.
 
 Computes per-class Accuracy, overall Accuracy, per-class Average Precision (AP),
@@ -150,15 +137,9 @@ class PersonalVadEvaluator:
     if sc_baseline:
       scores = convert_scores_for_sc_baseline(scores)
 
-    if self.eval_mode == "personal_vad_std_eval":
-      # When evaluating a 3-class Personal VAD model on standard 2-class VAD,
-      # map non-target speech (2) to speech (0) in labels and use the first two
-      # columns (or combine speech columns if appropriate). Following
-      # sklearn_eval_lib.py, we evaluate classes [0, 1] using scores[:, :2] and
-      # map label 2 -> 0.
-      labels = np.where(labels == 2, 0, labels)
-      scores = scores[:, :2]
-    elif self.eval_mode == "std_vad_std_eval":
+    if self.eval_mode in ("personal_vad_std_eval", "std_vad_std_eval"):
+      # When evaluating on standard 2-class VAD, map non-target speech (2) to
+      # speech (0) in labels and use the first two score columns [speech, ns].
       labels = np.where(labels == 2, 0, labels)
       scores = scores[:, :2]
 

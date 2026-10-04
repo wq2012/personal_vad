@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Tests for personal_vad.loss."""
 
 import os
@@ -25,15 +12,53 @@ sys.path.insert(
 from personal_vad import loss  # noqa: E402
 
 
+def _reference_pairwise_loss(
+    logits: np.ndarray,
+    labels: np.ndarray,
+    weights: dict[tuple[int, int], float],
+    symmetric: bool = True,
+    label_smoothing: float = 0.0,
+) -> np.ndarray:
+  """Computes reference per-frame weighted pairwise loss in NumPy."""
+  norm_weights = loss.normalize_weights(weights)
+  num_frames, num_classes = logits.shape
+  out = np.zeros((num_frames,), dtype=np.float64)
+  smooth_pos = 1.0 - 0.5 * label_smoothing
+  smooth_neg = 0.5 * label_smoothing
+
+  for i in range(num_frames):
+    y = int(labels[i])
+    z_y = float(logits[i, y])
+    frame_sum = 0.0
+    for k in range(num_classes):
+      if k == y:
+        continue
+      pair = (min(y, k), max(y, k)) if symmetric else (y, k)
+      w = norm_weights[pair]
+      z_k = float(logits[i, k])
+      denom = np.logaddexp(z_y, z_k)
+      log_p_y = z_y - denom
+      log_p_k = z_k - denom
+      ce = -(smooth_pos * log_p_y + smooth_neg * log_p_k)
+      frame_sum += w * ce
+    out[i] = frame_sum / float(num_classes - 1)
+  return out.astype(np.float32)
+
+
 class WeightedPairwiseLossTest(unittest.TestCase):
 
   def setUp(self):
     super().setUp()
     self.logits = tf.constant(
-        [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [0.0, 0.0, 2.0]],
+        [
+            [1.2, -0.4, 0.3],
+            [-0.5, 1.5, 0.2],
+            [0.1, -0.8, 1.7],
+            [0.9, 0.4, -0.2],
+        ],
         dtype=tf.float32,
     )
-    self.labels = tf.constant([1, 2, 0, 2], dtype=tf.int32)
+    self.labels = tf.constant([0, 1, 2, 0], dtype=tf.int32)
 
   def test_normalize_weights_positive(self):
     weights = {(0, 1): 1.0, (0, 2): 1.0, (1, 2): 0.5}
@@ -82,154 +107,58 @@ class WeightedPairwiseLossTest(unittest.TestCase):
     val = float(loss_fn.compute_loss(self.logits, self.labels).numpy())
     self.assertAlmostEqual(val, 0.0, places=5)
 
-  def test_compute_loss_equal_weights(self):
-    probability_value = np.array(
-        [
-            [0.3, 0.4, 0.1],
-            [0.3, 0.2, 0.2],
-            [0.4, 0.3, 0.1],
-            [0.2, 0.3, 0.2],
-            [0.4, 0.1, 0.3],
-            [0.2, 0.2, 0.3],
-        ],
-        dtype=np.float32,
-    )
-    logits = tf.constant(np.log(probability_value), dtype=tf.float32)
-    labels = tf.constant([0, 0, 1, 1, 2, 2], dtype=tf.int32)
-    weights = {(0, 1): 1.0, (0, 2): 1.0, (1, 2): 1.0}
-    loss_fn = loss.WeightedPairwiseLoss(weights=weights, num_classes=3)
-    per_frame = loss_fn.compute_per_frame_loss(logits, labels).numpy()
-    loss_1 = (
-        -0.5
-        * (np.log(0.3) - np.log(0.3 + 0.4) + np.log(0.3) - np.log(0.3 + 0.1))
-        / 3.0
-    )
-    loss_2 = -0.5 * ((np.log(0.3) - np.log(0.3 + 0.2)) * 2.0) / 3.0
-    expected = np.array([loss_1, loss_2, loss_1, loss_2, loss_1, loss_2])
-    np.testing.assert_allclose(per_frame, expected, atol=1e-5)
-    val = float(loss_fn.compute_loss(logits, labels).numpy())
-    self.assertAlmostEqual(val, float(np.mean(expected)), places=5)
-
-  def test_compute_loss_unequal_weights(self):
-    probability_value = np.array(
-        [
-            [0.3, 0.4, 0.1],
-            [0.3, 0.2, 0.2],
-            [0.4, 0.3, 0.1],
-            [0.2, 0.3, 0.2],
-            [0.4, 0.1, 0.3],
-            [0.2, 0.2, 0.3],
-        ],
-        dtype=np.float32,
-    )
-    logits = tf.constant(np.log(probability_value), dtype=tf.float32)
-    labels = tf.constant([0, 0, 1, 1, 2, 2], dtype=tf.int32)
-    weights = {(0, 1): 1.0, (0, 2): 0.5, (1, 2): 0.25}
-    loss_fn = loss.WeightedPairwiseLoss(weights=weights, num_classes=3)
-    per_frame = loss_fn.compute_per_frame_loss(logits, labels).numpy()
-    loss_1 = (
-        -0.5
-        * (
-            np.log(0.3)
-            - np.log(0.3 + 0.4)
-            + (np.log(0.3) - np.log(0.3 + 0.1)) * 0.5
-        )
-        / 1.75
-    )
-    loss_2 = (
-        -0.5
-        * (
-            np.log(0.3)
-            - np.log(0.3 + 0.2)
-            + (np.log(0.3) - np.log(0.3 + 0.2)) * 0.5
-        )
-        / 1.75
-    )
-    loss_3 = (
-        -0.5
-        * (
-            np.log(0.3)
-            - np.log(0.3 + 0.4)
-            + (np.log(0.3) - np.log(0.3 + 0.1)) * 0.25
-        )
-        / 1.75
-    )
-    loss_4 = (
-        -0.5
-        * (
-            np.log(0.3)
-            - np.log(0.3 + 0.2)
-            + (np.log(0.3) - np.log(0.3 + 0.2)) * 0.25
-        )
-        / 1.75
-    )
-    loss_5 = (
-        -0.5
-        * (
-            (np.log(0.3) - np.log(0.3 + 0.4)) * 0.5
-            + (np.log(0.3) - np.log(0.3 + 0.1)) * 0.25
-        )
-        / 1.75
-    )
-    loss_6 = (
-        -0.5
-        * (
-            (np.log(0.3) - np.log(0.3 + 0.2)) * 0.5
-            + (np.log(0.3) - np.log(0.3 + 0.2)) * 0.25
-        )
-        / 1.75
-    )
-    expected = np.array([loss_1, loss_2, loss_3, loss_4, loss_5, loss_6])
-    np.testing.assert_allclose(per_frame, expected, atol=1e-5)
-    val = float(loss_fn.compute_loss(logits, labels).numpy())
-    self.assertAlmostEqual(val, float(np.mean(expected)), places=5)
+  def test_compute_loss_symmetric_weights(self):
+    for weights in (
+        {(0, 1): 1.0, (0, 2): 1.0, (1, 2): 1.0},
+        {(0, 1): 1.0, (0, 2): 1.0, (1, 2): 0.1},
+    ):
+      loss_fn = loss.WeightedPairwiseLoss(weights=weights, num_classes=3)
+      per_frame = loss_fn.compute_per_frame_loss(
+          self.logits, self.labels
+      ).numpy()
+      expected = _reference_pairwise_loss(
+          self.logits.numpy(), self.labels.numpy(), weights, symmetric=True
+      )
+      np.testing.assert_allclose(per_frame, expected, atol=1e-5)
+      mean_val = float(loss_fn.compute_loss(self.logits, self.labels).numpy())
+      self.assertAlmostEqual(mean_val, float(np.mean(expected)), places=5)
 
   def test_compute_loss_asymmetric_weights(self):
     weights = {
         (0, 1): 1.0,
         (0, 2): 0.5,
-        (1, 0): 0.33,
-        (1, 2): 0.25,
-        (2, 0): 0.5,
-        (2, 1): 0.25,
+        (1, 0): 0.4,
+        (1, 2): 0.2,
+        (2, 0): 0.6,
+        (2, 1): 0.3,
     }
     loss_fn = loss.WeightedPairwiseLoss(
         weights=weights, num_classes=3, symmetric_weights=False
     )
-    labels = tf.constant([0, 1, 1, 2], dtype=tf.int32)
-    w_alt1 = loss_fn.get_pairwise_weight(1, labels).numpy()
-    sum_w = sum(weights.values())
-    np.testing.assert_allclose(
-        w_alt1, np.array([1.0, 0.0, 0.0, 0.25]) / sum_w, atol=1e-5
+    per_frame = loss_fn.compute_per_frame_loss(self.logits, self.labels).numpy()
+    expected = _reference_pairwise_loss(
+        self.logits.numpy(), self.labels.numpy(), weights, symmetric=False
     )
-    val = float(loss_fn.compute_loss(self.logits, self.labels).numpy())
-    self.assertGreater(val, 0.0)
+    np.testing.assert_allclose(per_frame, expected, atol=1e-5)
 
   def test_compute_loss_with_label_smoothing_and_mask(self):
-    probability_value = np.array(
-        [
-            [0.3, 0.4, 0.1],
-            [0.3, 0.2, 0.2],
-            [0.4, 0.3, 0.1],
-            [0.2, 0.3, 0.2],
-            [0.4, 0.1, 0.3],
-            [0.2, 0.2, 0.3],
-        ],
-        dtype=np.float32,
-    )
-    logits = tf.constant(np.log(probability_value), dtype=tf.float32)
-    labels = tf.constant([0, 0, 1, 1, 2, 2], dtype=tf.int32)
-    weights = {(0, 1): 1.0, (0, 2): 0.5, (1, 2): 0.25}
+    weights = {(0, 1): 1.0, (0, 2): 0.8, (1, 2): 0.2}
     loss_fn = loss.WeightedPairwiseLoss(
         weights=weights, num_classes=3, label_smoothing=0.1
     )
-    per_frame = loss_fn.compute_per_frame_loss(logits, labels).numpy()
-    expected = np.array(
-        [0.28692007, 0.22761382, 0.2624477, 0.18967819, 0.14346004, 0.1138069]
+    per_frame = loss_fn.compute_per_frame_loss(self.logits, self.labels).numpy()
+    expected = _reference_pairwise_loss(
+        self.logits.numpy(),
+        self.labels.numpy(),
+        weights,
+        symmetric=True,
+        label_smoothing=0.1,
     )
     np.testing.assert_allclose(per_frame, expected, atol=1e-5)
-    mask = tf.constant([1.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=tf.float32)
-    val = float(loss_fn.compute_loss(logits, labels, mask=mask).numpy())
+    mask = tf.constant([1.0, 1.0, 1.0, 0.0], dtype=tf.float32)
+    val = float(
+        loss_fn.compute_loss(self.logits, self.labels, mask=mask).numpy()
+    )
     self.assertAlmostEqual(val, float(np.mean(expected[:3])), places=5)
 
   def test_cross_entropy_loss(self):

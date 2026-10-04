@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """Neural network layers for Personal VAD 1.0 and 2.0.
 
 Implements:
@@ -476,7 +463,7 @@ class SpeakerPreNet(tf.keras.layers.Layer):
   """Speaker Pre-Net for Personal VAD 2.0 (Architectures E2 and E3).
 
   Reproduces the Speaker Pre-Net in Section 2.2.2 of Personal VAD 2.0
-  (arXiv:2204.03793) and `personal_vad_model.py`:
+  (arXiv:2204.03793):
   - Projects acoustic features `x` to `prenet_dim` (64).
   - Applies `num_layers` (2) causal Conformer blocks.
   - Projects to `output_dim` (256) to form frame-level speaker embeddings

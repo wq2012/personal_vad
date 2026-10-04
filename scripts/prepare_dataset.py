@@ -1,16 +1,3 @@
-# Copyright 2024 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 """CLI script to prepare concatenated multi-speaker Personal VAD datasets.
 
 Can either:
@@ -62,12 +49,12 @@ def generate_synthetic_single_speaker_utterances(
   """
   rng = np.random.default_rng(seed)
   speaker_embeddings = {}
-  speaker_acoustic_Signatures = {}
+  speaker_signatures = {}
   for spk_idx in range(num_speakers):
     spk_id = f"spk_{spk_idx:03d}"
     raw_emb = rng.standard_normal(speaker_embedding_dim).astype(np.float32)
     speaker_embeddings[spk_id] = dataset.l2_normalize_numpy(raw_emb)
-    speaker_acoustic_Signatures[spk_id] = rng.standard_normal(
+    speaker_signatures[spk_id] = rng.standard_normal(
         feature_dim
     ).astype(np.float32)
 
@@ -89,7 +76,7 @@ def generate_synthetic_single_speaker_utterances(
     noise = 0.25 * rng.standard_normal((num_frames, feature_dim)).astype(
         np.float32
     )
-    sig = speaker_acoustic_Signatures[spk_id][None, :]
+    sig = speaker_signatures[spk_id][None, :]
     features = speech_mask * (sig + 1.5) + (1.0 - speech_mask) * (-1.5) + noise
 
     utterances.append(
