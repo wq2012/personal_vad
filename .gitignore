@@ -13,3 +13,4 @@ docs/
 *.tflite
 *.npz
 *.h5
+*.safetensors

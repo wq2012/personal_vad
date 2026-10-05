@@ -399,6 +399,50 @@ class PersonalVadModel(tf.keras.Model):
 
     return state
 
+  def _run_lstm_step(
+      self,
+      lstm: tf.keras.layers.LSTM,
+      x: tf.Tensor,
+      prev_state: Optional[tuple[tf.Tensor, tf.Tensor]] = None,
+  ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    """Runs an LSTM layer with batched input pre-projection across time."""
+    if not lstm.built:
+      lstm.build(x.shape)
+    cell = lstm.cell
+    batch_size = tf.shape(x)[0]
+    if prev_state is None:
+      h = tf.zeros([batch_size, cell.units], dtype=x.dtype)
+      c = tf.zeros([batch_size, cell.units], dtype=x.dtype)
+    else:
+      h, c = prev_state
+
+    x_proj = tf.matmul(x, cell.kernel) + cell.bias
+    static_steps = x.shape[1]
+    if static_steps is not None and static_steps <= 64:
+      outputs = []
+      for t in range(static_steps):
+        z = x_proj[:, t, :] + tf.matmul(h, cell.recurrent_kernel)
+        i, f, c_cand, o = tf.split(z, 4, axis=-1)
+        c = tf.sigmoid(f) * c + tf.sigmoid(i) * tf.tanh(c_cand)
+        h = tf.sigmoid(o) * tf.tanh(c)
+        outputs.append(tf.expand_dims(h, axis=1))
+      return tf.concat(outputs, axis=1), h, c
+
+    x_time = tf.transpose(x_proj, [1, 0, 2])
+
+    def _scan_fn(
+        states: tuple[tf.Tensor, tf.Tensor], x_t: tf.Tensor
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      h_prev, c_prev = states
+      z = x_t + tf.matmul(h_prev, cell.recurrent_kernel)
+      i, f, c_cand, o = tf.split(z, 4, axis=-1)
+      c_new = tf.sigmoid(f) * c_prev + tf.sigmoid(i) * tf.tanh(c_cand)
+      h_new = tf.sigmoid(o) * tf.tanh(c_new)
+      return (h_new, c_new)
+
+    h_seq, c_seq = tf.scan(_scan_fn, x_time, initializer=(h, c))
+    return tf.transpose(h_seq, [1, 0, 2]), h_seq[-1], c_seq[-1]
+
   def stream_step(
       self,
       features: tf.Tensor,
@@ -431,7 +475,7 @@ class PersonalVadModel(tf.keras.Model):
     if self.config.backbone == configs.BackboneType.LSTM_V1:
       new_lstm_states = []
       for lstm, prev_state in zip(self.lstm_layers, state["lstm"]):
-        x, h, c = lstm(x, initial_state=prev_state, training=False)
+        x, h, c = self._run_lstm_step(lstm, x, prev_state)
         new_lstm_states.append((h, c))
       new_state["lstm"] = new_lstm_states
       assert self.post_fc is not None
@@ -444,7 +488,7 @@ class PersonalVadModel(tf.keras.Model):
       for lstm, norm, prev_state in zip(
           self.lstm_layers, self.lstm_norms, state["lstm"]
       ):
-        x, h, c = lstm(x, initial_state=prev_state, training=False)
+        x, h, c = self._run_lstm_step(lstm, x, prev_state)
         if norm is not None:
           x = norm(x)
         new_lstm_states.append((h, c))

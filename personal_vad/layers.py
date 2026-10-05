@@ -254,7 +254,7 @@ class CausalMultiHeadSelfAttention(tf.keras.layers.Layer):
     step_len = tf.shape(inputs)[1]
     if self.left_context > 0:
       full_kv_normed = tf.concat([cache, normed], axis=1)
-      new_cache = full_kv_normed[:, -self.left_context :, :]
+      new_cache = full_kv_normed[:, -self.left_context:, :]
     else:
       full_kv_normed = normed
       new_cache = cache
@@ -362,7 +362,7 @@ class CausalConvModule(tf.keras.layers.Layer):
     gated = self._glu(pw1)
     if self.kernel_size > 1:
       padded = tf.concat([conv_cache, gated], axis=1)
-      new_cache = padded[:, -(self.kernel_size - 1) :, :]
+      new_cache = padded[:, -(self.kernel_size - 1):, :]
     else:
       padded = gated
       new_cache = conv_cache

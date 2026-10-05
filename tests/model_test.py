@@ -80,7 +80,7 @@ class ModelTest(unittest.TestCase):
       stream_probs_list = []
       for t in range(6):
         _, step_probs, state = pvad.stream_step(
-            features[:, t : t + 1, :], speaker_embedding=spk_emb, state=state
+            features[:, t:t + 1, :], speaker_embedding=spk_emb, state=state
         )
         stream_probs_list.append(step_probs.numpy())
       stream_probs = np.concatenate(stream_probs_list, axis=1)
@@ -109,7 +109,7 @@ class ModelTest(unittest.TestCase):
     stream_probs_list = []
     for t in range(5):
       _, step_probs, state = pvad.stream_step(
-          features[:, t : t + 1, :], speaker_embedding=spk_emb, state=state
+          features[:, t:t + 1, :], speaker_embedding=spk_emb, state=state
       )
       stream_probs_list.append(step_probs.numpy())
     stream_probs = np.concatenate(stream_probs_list, axis=1)

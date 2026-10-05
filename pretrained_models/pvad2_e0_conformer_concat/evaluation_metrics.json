@@ -1,0 +1,128 @@
+{
+  "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+  "backbone": "conformer",
+  "conditioning_mode": "concat",
+  "loss_type": "cross_entropy",
+  "final_train_loss": 0.5017971860807996,
+  "artifacts": {
+    "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model.weights.h5",
+    "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model.safetensors",
+    "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_config.json",
+    "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_fp32.tflite",
+    "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_quantized.tflite",
+    "fp32_size_kb": 2837.54,
+    "quant_size_kb": 898.28,
+    "safetensors_size_kb": 2744.36,
+    "num_parameters": 699907
+  },
+  "evaluations": {
+    "personal_vad_non_concat": {
+      "eval_mode": "personal_vad",
+      "num_frames": 11655,
+      "overall_accuracy": 0.6151866151866152,
+      "class_accuracies": {
+        "Speech (tss)": 0.960633484162896,
+        "Silence (ns)": 0.958113340373108,
+        "Non-Target Speech (ntss)": 0.04597177969959035
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.6074574393505288,
+        "Silence (ns)": 0.9611598472974494,
+        "Non-Target Speech (ntss)": 0.6266953658090519
+      },
+      "mean_average_precision_micro": 0.7408429278482976,
+      "roc_aucs": {
+        "Speech (tss)": 0.7690439104779118,
+        "Silence (ns)": 0.9897623552878622,
+        "Non-Target Speech (ntss)": 0.76508816814405
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.7194,
+          0.7632
+        ]
+      }
+    },
+    "personal_vad_concat": {
+      "eval_mode": "personal_vad",
+      "num_frames": 23310,
+      "overall_accuracy": 0.7744315744315744,
+      "class_accuracies": {
+        "Speech (tss)": 0.9297725816784113,
+        "Silence (ns)": 0.9588173178458289,
+        "Non-Target Speech (ntss)": 0.19319066147859923
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.8335688258376212,
+        "Silence (ns)": 0.9678144320359481,
+        "Non-Target Speech (ntss)": 0.5070658799634897
+      },
+      "mean_average_precision_micro": 0.850230635420085,
+      "roc_aucs": {
+        "Speech (tss)": 0.8472361077057187,
+        "Silence (ns)": 0.9910630043864012,
+        "Non-Target Speech (ntss)": 0.7817958579691585
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.8323,
+          0.8688
+        ]
+      }
+    },
+    "personal_vad_non_concat_tflite_quant": {
+      "eval_mode": "personal_vad",
+      "num_frames": 11655,
+      "overall_accuracy": 0.6137280137280138,
+      "class_accuracies": {
+        "Speech (tss)": 0.9343891402714932,
+        "Silence (ns)": 0.9595212953185498,
+        "Non-Target Speech (ntss)": 0.067592171142467
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.5998736000517946,
+        "Silence (ns)": 0.950188088339673,
+        "Non-Target Speech (ntss)": 0.5981721680228345
+      },
+      "mean_average_precision_micro": 0.7343960413182419,
+      "roc_aucs": {
+        "Speech (tss)": 0.7605564328756329,
+        "Silence (ns)": 0.9888910693500876,
+        "Non-Target Speech (ntss)": 0.7574228563608889
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.7118,
+          0.7596
+        ]
+      }
+    },
+    "personal_vad_concat_tflite_quant": {
+      "eval_mode": "personal_vad",
+      "num_frames": 23310,
+      "overall_accuracy": 0.7425139425139425,
+      "class_accuracies": {
+        "Speech (tss)": 0.8684336963484945,
+        "Silence (ns)": 0.9649771207321366,
+        "Non-Target Speech (ntss)": 0.19066147859922178
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.8249367262784663,
+        "Silence (ns)": 0.9584908655546589,
+        "Non-Target Speech (ntss)": 0.41888989695802253
+      },
+      "mean_average_precision_micro": 0.8329035288495628,
+      "roc_aucs": {
+        "Speech (tss)": 0.8306289802394368,
+        "Silence (ns)": 0.9894973953073121,
+        "Non-Target Speech (ntss)": 0.7595384650801231
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.8167,
+          0.8498
+        ]
+      }
+    }
+  }
+}

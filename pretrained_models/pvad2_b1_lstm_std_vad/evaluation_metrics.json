@@ -1,0 +1,68 @@
+{
+  "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+  "backbone": "lstm_v2",
+  "conditioning_mode": "sc",
+  "loss_type": "cross_entropy",
+  "final_train_loss": 0.04298209949311885,
+  "artifacts": {
+    "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model.weights.h5",
+    "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model.safetensors",
+    "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_config.json",
+    "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_fp32.tflite",
+    "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_quantized.tflite",
+    "fp32_size_kb": 6857.6,
+    "quant_size_kb": 1941.16,
+    "safetensors_size_kb": 6678.45,
+    "num_parameters": 1709314
+  },
+  "evaluations": {
+    "std_vad_non_concat": {
+      "eval_mode": "std_vad_std_eval",
+      "num_frames": 11655,
+      "overall_accuracy": 0.9668811668811669,
+      "class_accuracies": {
+        "Speech": 0.9793510324483776,
+        "Silence": 0.928194297782471
+      },
+      "average_precisions": {
+        "Speech": 0.9966395284953815,
+        "Silence": 0.9413486649853531
+      },
+      "mean_average_precision_micro": 0.9929029680847838,
+      "roc_aucs": {
+        "Speech": 0.9880594390527949,
+        "Silence": 0.9880596387287287
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.9901,
+          0.9952
+        ]
+      }
+    },
+    "std_vad_concat": {
+      "eval_mode": "std_vad_std_eval",
+      "num_frames": 23310,
+      "overall_accuracy": 0.9668811668811669,
+      "class_accuracies": {
+        "Speech": 0.9793510324483776,
+        "Silence": 0.928194297782471
+      },
+      "average_precisions": {
+        "Speech": 0.9965240624672271,
+        "Silence": 0.9342706293506927
+      },
+      "mean_average_precision_micro": 0.9927002274005371,
+      "roc_aucs": {
+        "Speech": 0.9874935874073814,
+        "Silence": 0.9874938370022988
+      },
+      "bootstrap_ci": {
+        "mAP_micro_95_ci": [
+          0.9908,
+          0.9946
+        ]
+      }
+    }
+  }
+}

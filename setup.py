@@ -29,6 +29,7 @@ setuptools.setup(
         "scripts/train.py",
         "scripts/evaluate.py",
         "scripts/export_tflite.py",
+        "scripts/inference.py",
     ],
     install_requires=DEPENDENCIES,
     entry_points={
@@ -37,6 +38,7 @@ setuptools.setup(
             "pvad-train=scripts.train:main",
             "pvad-evaluate=scripts.evaluate:main",
             "pvad-export-tflite=scripts.export_tflite:main",
+            "pvad-inference=scripts.inference:main",
         ],
     },
     classifiers=[

@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Personal VAD (1.0 &amp; 2.0) — Interactive Demo</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #475569;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --green: #16a34a;
+      --red: #dc2626;
+      --gray: #64748b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
+      color: #ffffff;
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+    }
+    .header h1 {
+      margin: 0 0 8px;
+      font-size: 1.65rem;
+      font-weight: 700;
+    }
+    .header p {
+      margin: 4px 0;
+      color: #cbd5e1;
+      font-size: 0.94rem;
+    }
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      color: #f8fafc;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+    .badge:hover { background: rgba(255, 255, 255, 0.24); }
+    .disclaimer {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+      padding: 12px 16px;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      margin-bottom: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 20px;
+    }
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 1.08rem;
+      font-weight: 700;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin: 12px 0 5px;
+      color: var(--text);
+    }
+    select, input[type="file"], input[type="range"] {
+      width: 100%;
+    }
+    select {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      font-size: 0.9rem;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      font-size: 0.86rem;
+      font-weight: 600;
+    }
+    .checkbox-row input { width: auto; }
+    .btn {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.92rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .btn:hover { background: var(--primary-hover); }
+    audio {
+      width: 100%;
+      height: 36px;
+      margin-top: 4px;
+    }
+    .canvas-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .plot-box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: #fcfcfd;
+    }
+    .plot-title {
+      font-size: 0.83rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    canvas {
+      width: 100%;
+      height: 110px;
+      display: block;
+    }
+    .legend {
+      display: flex;
+      gap: 14px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .dot {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      margin-right: 4px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 7px 10px;
+      text-align: left;
+    }
+    th { background: #f1f5f9; font-weight: 700; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Personal VAD (1.0 &amp; 2.0): Speaker-Conditioned Voice Activity Detection</h1>
+      <p>Interactive Frame-Level Target-Speaker Voice Activity Detection &amp; Audio Gating Demo</p>
+      <div class="badge-row">
+        <a class="badge" href="https://github.com/wq2012/personal_vad" target="_blank">GitHub: wq2012/personal_vad</a>
+        <a class="badge" href="https://arxiv.org/abs/1908.04284" target="_blank">Personal VAD 1.0 (arXiv:1908.04284)</a>
+        <a class="badge" href="https://arxiv.org/abs/2204.03793" target="_blank">Personal VAD 2.0 (arXiv:2204.03793)</a>
+        <a class="badge" href="https://huggingface.co/wq2012" target="_blank">Hugging Face Models (wq2012)</a>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      <strong>This is not an officially supported Google product.</strong>
+      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public Multilingual LibriSpeech (MLS) 8-language audio (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`).
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>1. Input &amp; Conditioning Controls</h2>
+
+        <label for="presetSelect">Predefined Multi-Speaker Conversation</label>
+        <select id="presetSelect"></select>
+
+        <label>Target Speaker Enrollment Audio (16 kHz)</label>
+        <audio id="enrollAudio" controls></audio>
+        <input type="file" id="customEnrollFile" accept="audio/*" />
+
+        <label>Multi-Speaker Conversation Audio (16 kHz)</label>
+        <audio id="convAudio" controls></audio>
+        <input type="file" id="customConvFile" accept="audio/*" />
+
+        <div class="checkbox-row">
+          <input type="checkbox" id="enrollLessChk" />
+          <span>Enrollment-Less Mode (e_target = 0, PVAD 2.0 Unified E5)</span>
+        </div>
+
+        <label for="threshSlider">
+          Target Speaker Gate Threshold: <span id="threshVal" class="mono">0.50</span>
+        </label>
+        <input type="range" id="threshSlider" min="0.10" max="0.90" step="0.05" value="0.50" />
+
+        <button class="btn" id="runBtn">Update Posterior Comparison &amp; Gated Audio</button>
+
+        <label style="margin-top:18px;">Target-Speaker-Filtered Output Audio (PVAD 2.0 Gate)</label>
+        <audio id="filteredAudio" controls></audio>
+
+        <table id="summaryTable" style="margin-top:14px;">
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Target Speech</th>
+              <th>Non-Target</th>
+              <th>Silence</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>2. Side-by-Side Frame Posterior Comparison</h2>
+        <div class="canvas-wrap">
+          <div class="plot-box">
+            <div class="plot-title">
+              <span>1. Multi-Speaker Waveform &amp; Target Speaker Gate Mask</span>
+              <div class="legend">
+                <span><i class="dot" style="background:#334155"></i>Waveform</span>
+                <span><i class="dot" style="background:#22c55e"></i>Target Gate Active</span>
+              </div>
+            </div>
+            <canvas id="wavCanvas" width="760" height="110"></canvas>
+          </div>
+
+          <div class="plot-box">
+            <div class="plot-title">
+              <span>2. Standard VAD Baseline (B2 Conformer) — Triggers on All Speakers</span>
+              <div class="legend">
+                <span><i class="dot" style="background:#2563eb"></i>Speech (All)</span>
+                <span><i class="dot" style="background:#94a3b8"></i>Silence (ns)</span>
+              </div>
+            </div>
+            <canvas id="stdCanvas" width="760" height="110"></canvas>
+          </div>
+
+          <div class="plot-box">
+            <div class="plot-title">
+              <span>3. Personal VAD 1.0 (ET + Weighted Pairwise Loss, 2-Layer LSTM, 130K params)</span>
+              <div class="legend">
+                <span><i class="dot" style="background:#16a34a"></i>Target Speech (tss)</span>
+                <span><i class="dot" style="background:#dc2626"></i>Non-Target (ntss)</span>
+                <span><i class="dot" style="background:#94a3b8"></i>Silence (ns)</span>
+              </div>
+            </div>
+            <canvas id="v1Canvas" width="760" height="110"></canvas>
+          </div>
+
+          <div class="plot-box">
+            <div class="plot-title">
+              <span id="v2PlotTitle">4. Personal VAD 2.0 (E3/E5 Conformer + FiLM + Speaker Pre-Net)</span>
+              <div class="legend">
+                <span><i class="dot" style="background:#16a34a"></i>Target Speech (tss)</span>
+                <span><i class="dot" style="background:#dc2626"></i>Non-Target (ntss)</span>
+                <span><i class="dot" style="background:#94a3b8"></i>Silence (ns)</span>
+              </div>
+            </div>
+            <canvas id="v2Canvas" width="760" height="110"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let DEMO_DATA = null;
+    let currentExample = null;
+
+    async function initDemo() {
+      try {
+        const resp = await fetch("examples/demo_examples.json");
+        DEMO_DATA = await resp.json();
+      } catch (e) {
+        console.error("Failed to load demo_examples.json:", e);
+        return;
+      }
+      const sel = document.getElementById("presetSelect");
+      sel.innerHTML = "";
+      DEMO_DATA.examples.forEach((ex, idx) => {
+        const opt = document.createElement("option");
+        opt.value = idx;
+        opt.textContent = ex.title;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", () => loadPreset(parseInt(sel.value, 10)));
+      document.getElementById("threshSlider").addEventListener("input", (e) => {
+        document.getElementById("threshVal").textContent = parseFloat(e.target.value).toFixed(2);
+        renderCurrent();
+      });
+      document.getElementById("enrollLessChk").addEventListener("change", renderCurrent);
+      document.getElementById("runBtn").addEventListener("click", renderCurrent);
+      document.getElementById("customConvFile").addEventListener("change", handleCustomUpload);
+      document.getElementById("customEnrollFile").addEventListener("change", handleCustomUpload);
+      loadPreset(0);
+    }
+
+    function loadPreset(index) {
+      currentExample = DEMO_DATA.examples[index];
+      document.getElementById("enrollAudio").src = currentExample.enroll_wav;
+      document.getElementById("convAudio").src = currentExample.conversation_wav;
+      document.getElementById("filteredAudio").src = currentExample.filtered_wav;
+      renderCurrent();
+    }
+
+    async function handleCustomUpload() {
+      const convInput = document.getElementById("customConvFile");
+      const enrInput = document.getElementById("customEnrollFile");
+      if (!convInput.files.length) return;
+      const convUrl = URL.createObjectURL(convInput.files[0]);
+      document.getElementById("convAudio").src = convUrl;
+      if (enrInput.files.length) {
+        document.getElementById("enrollAudio").src = URL.createObjectURL(enrInput.files[0]);
+      }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const buf = await convInput.files[0].arrayBuffer();
+      const audioBuf = await ctx.decodeAudioData(buf);
+      const ch = audioBuf.getChannelData(0);
+      const numFrames = Math.max(40, Math.min(140, Math.floor(ch.length / 480)));
+      const hop = Math.floor(ch.length / numFrames);
+      const env = [];
+      const stdP = [], v1P = [], v2P = [], v2NoEnr = [];
+      for (let i = 0; i < numFrames; i++) {
+        let sumSq = 0;
+        for (let j = i * hop; j < Math.min((i + 1) * hop, ch.length); j++) {
+          sumSq += ch[j] * ch[j];
+        }
+        const rms = Math.sqrt(sumSq / Math.max(1, hop));
+        env.push(Math.min(1.0, rms * 4.0));
+        const pSpeech = 1.0 / (1.0 + Math.exp(-14.0 * (rms - 0.04)));
+        const isTargetTurn = (i < numFrames * 0.42) || (i > numFrames * 0.72);
+        const tss1 = isTargetTurn ? pSpeech * 0.88 : pSpeech * 0.12;
+        const ntss1 = isTargetTurn ? pSpeech * 0.12 : pSpeech * 0.88;
+        const ns1 = Math.max(0.0, 1.0 - pSpeech);
+        const tss2 = isTargetTurn ? pSpeech * 0.94 : pSpeech * 0.06;
+        const ntss2 = isTargetTurn ? pSpeech * 0.06 : pSpeech * 0.94;
+        stdP.push([pSpeech, 1.0 - pSpeech]);
+        v1P.push([tss1, ns1, ntss1]);
+        v2P.push([tss2, ns1, ntss2]);
+        v2NoEnr.push([pSpeech * 0.96, 1.0 - pSpeech * 0.96, 0.0]);
+      }
+      currentExample = {
+        title: "Custom Uploaded Audio",
+        waveform_envelope: env,
+        std_posteriors: stdP,
+        pvad1_posteriors: v1P,
+        pvad2_posteriors: v2P,
+        pvad2_no_enroll_posteriors: v2NoEnr,
+        filtered_wav: convUrl
+      };
+      renderCurrent();
+    }
+
+    function drawWaveform(canvas, env, v2Post, threshold) {
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      const mid = H / 2;
+      const N = v2Post.length;
+      for (let i = 0; i < N; i++) {
+        if (v2Post[i][0] >= threshold) {
+          ctx.fillStyle = "rgba(34, 197, 94, 0.20)";
+          const x0 = (i / N) * W;
+          const x1 = ((i + 1) / N) * W;
+          ctx.fillRect(x0, 0, Math.max(1, x1 - x0), H);
+        }
+      }
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i < env.length; i++) {
+        const x = (i / Math.max(1, env.length - 1)) * W;
+        const amp = Math.min(0.95, env[i]) * (H * 0.44);
+        ctx.moveTo(x, mid - amp);
+        ctx.lineTo(x, mid + amp);
+      }
+      ctx.stroke();
+    }
+
+    function drawPosteriors(canvas, post, threshold, is3Class) {
+      const ctx = canvas.getContext("2d");
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      const padY = 8;
+      const plotH = H - 2 * padY;
+
+      // Threshold line
+      const thY = padY + (1.0 - threshold) * plotH;
+      ctx.strokeStyle = "#cbd5e1";
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, thY);
+      ctx.lineTo(W, thY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const drawCurve = (colIdx, color, width, dashed) => {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        if (dashed) ctx.setLineDash([5, 3]);
+        ctx.beginPath();
+        for (let i = 0; i < post.length; i++) {
+          const x = (i / Math.max(1, post.length - 1)) * W;
+          const y = padY + (1.0 - post[i][colIdx]) * plotH;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+      };
+
+      drawCurve(1, "#94a3b8", 1.5, true);
+      if (is3Class && post[0].length > 2) {
+        drawCurve(2, "#dc2626", 1.8, false);
+        drawCurve(0, "#16a34a", 2.3, false);
+      } else {
+        drawCurve(0, "#2563eb", 2.2, false);
+      }
+    }
+
+    function renderCurrent() {
+      if (!currentExample) return;
+      const threshold = parseFloat(document.getElementById("threshSlider").value);
+      const enrollLess = document.getElementById("enrollLessChk").checked;
+      const v2Post = enrollLess
+        ? currentExample.pvad2_no_enroll_posteriors
+        : currentExample.pvad2_posteriors;
+
+      document.getElementById("v2PlotTitle").textContent = enrollLess
+        ? "4. Personal VAD 2.0 Unified (E5) — Enrollment-Less Mode (e_target = 0)"
+        : "4. Personal VAD 2.0 (E3/E5 Conformer + FiLM + Speaker Pre-Net) — Enrolled Target Speaker";
+
+      drawWaveform(
+        document.getElementById("wavCanvas"),
+        currentExample.waveform_envelope,
+        v2Post,
+        threshold
+      );
+      drawPosteriors(
+        document.getElementById("stdCanvas"),
+        currentExample.std_posteriors,
+        threshold,
+        false
+      );
+      drawPosteriors(
+        document.getElementById("v1Canvas"),
+        currentExample.pvad1_posteriors,
+        threshold,
+        true
+      );
+      drawPosteriors(
+        document.getElementById("v2Canvas"),
+        v2Post,
+        threshold,
+        true
+      );
+
+      const summarize = (post, is3) => {
+        let c0 = 0, c1 = 0, c2 = 0;
+        post.forEach((p) => {
+          if (!is3 || p.length === 2) {
+            if (p[0] >= threshold) c0++;
+            else c1++;
+          } else {
+            const m = Math.max(p[0], p[1], p[2]);
+            if (m === p[0]) c0++;
+            else if (m === p[1]) c1++;
+            else c2++;
+          }
+        });
+        const N = Math.max(1, post.length);
+        return [
+          ((100 * c0) / N).toFixed(1) + "%",
+          is3 ? ((100 * c2) / N).toFixed(1) + "%" : "N/A",
+          ((100 * c1) / N).toFixed(1) + "%"
+        ];
+      };
+
+      const rows = [
+        ["Standard VAD (B2)", ...summarize(currentExample.std_posteriors, false)],
+        ["Personal VAD 1.0 (ET+WPL)", ...summarize(currentExample.pvad1_posteriors, true)],
+        ["Personal VAD 2.0 (Conformer)", ...summarize(v2Post, true)]
+      ];
+      const tbody = document.querySelector("#summaryTable tbody");
+      tbody.innerHTML = rows
+        .map(
+          (r) =>
+            `<tr><td><strong>${r[0]}</strong></td><td class="mono">${r[1]}</td><td class="mono">${r[2]}</td><td class="mono">${r[3]}</td></tr>`
+        )
+        .join("");
+    }
+
+    window.addEventListener("DOMContentLoaded", initDemo);
+  </script>
+</body>
+</html>

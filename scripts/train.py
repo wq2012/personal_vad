@@ -88,17 +88,57 @@ def train_model(
   """
   optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
   epoch_losses: list[float] = []
+  uses_prenet = pvad_model.speaker_prenet is not None
+  for b_in, _, _ in train_dataset.take(1):
+    _ = pvad_model(b_in, training=False)
+
+  @tf.function
+  def _train_step(
+      batch_inputs: dict[str, tf.Tensor],
+      batch_labels: tf.Tensor,
+      batch_mask: tf.Tensor,
+  ) -> tf.Tensor:
+    with tf.GradientTape() as tape:
+      logits = pvad_model(batch_inputs, training=True)
+      loss_val = loss_fn.compute_loss(
+          logits=logits, labels=batch_labels, mask=batch_mask
+      )
+      if uses_prenet and pvad_model.speaker_prenet is not None:
+        cos_sim = tf.squeeze(
+            pvad_model.speaker_prenet(
+                batch_inputs["features"],
+                batch_inputs["speaker_embedding"],
+                training=True,
+            ),
+            axis=-1,
+        )
+        target_cos = tf.where(
+            tf.equal(batch_labels, 0),
+            1.0,
+            tf.where(tf.equal(batch_labels, 2), -0.2, 0.0),
+        )
+        speech_mask = (
+            tf.cast(tf.not_equal(batch_labels, 1), tf.float32) * batch_mask
+        )
+        emb_sq = tf.reduce_sum(
+            tf.square(batch_inputs["speaker_embedding"]),
+            axis=-1,
+            keepdims=True,
+        )
+        emb_nonzero = tf.cast(emb_sq > 1e-6, tf.float32)
+        speech_mask = speech_mask * emb_nonzero
+        prenet_loss = tf.reduce_sum(
+            tf.square(cos_sim - target_cos) * speech_mask
+        ) / tf.maximum(tf.reduce_sum(speech_mask), 1.0)
+        loss_val = loss_val + 0.8 * prenet_loss
+    grads = tape.gradient(loss_val, pvad_model.trainable_variables)
+    optimizer.apply_gradients(zip(grads, pvad_model.trainable_variables))
+    return loss_val
 
   for _ in range(epochs):
     batch_losses = []
     for batch_inputs, batch_labels, batch_mask in train_dataset:
-      with tf.GradientTape() as tape:
-        logits = pvad_model(batch_inputs, training=True)
-        loss_val = loss_fn.compute_loss(
-            logits=logits, labels=batch_labels, mask=batch_mask
-        )
-      grads = tape.gradient(loss_val, pvad_model.trainable_variables)
-      optimizer.apply_gradients(zip(grads, pvad_model.trainable_variables))
+      loss_val = _train_step(batch_inputs, batch_labels, batch_mask)
       batch_losses.append(float(loss_val.numpy()))
 
     mean_epoch_loss = (
@@ -115,7 +155,7 @@ def train_model(
 def save_checkpoint(
     pvad_model: model_lib.PersonalVadModel, checkpoint_dir: str
 ) -> str:
-  """Saves model weights and `model_config.json` to `checkpoint_dir`."""
+  """Saves model weights (`.weights.h5` and `.safetensors`) and config JSON."""
   os.makedirs(checkpoint_dir, exist_ok=True)
   cfg_dict: dict[str, Any] = dataclasses.asdict(pvad_model.config)
   cfg_dict["backbone"] = pvad_model.config.backbone.value
@@ -127,6 +167,21 @@ def save_checkpoint(
 
   weights_path = os.path.join(checkpoint_dir, "model.weights.h5")
   pvad_model.save_weights(weights_path)
+
+  try:
+    from safetensors import numpy as st_np  # noqa: E402
+
+    weights_list = pvad_model.get_weights()
+    tensor_dict = {
+        f"weight_{i:03d}": w for i, w in enumerate(weights_list)
+    }
+    if tensor_dict:
+      st_np.save_file(
+          tensor_dict, os.path.join(checkpoint_dir, "model.safetensors")
+      )
+  except ImportError:
+    pass
+
   return weights_path
 
 
@@ -154,7 +209,20 @@ def load_checkpoint(checkpoint_dir: str) -> model_lib.PersonalVadModel:
       training=False,
   )
   weights_path = os.path.join(checkpoint_dir, "model.weights.h5")
-  pvad_model.load_weights(weights_path)
+  safetensors_path = os.path.join(checkpoint_dir, "model.safetensors")
+  if os.path.exists(weights_path):
+    pvad_model.load_weights(weights_path)
+  elif os.path.exists(safetensors_path):
+    from safetensors import numpy as st_np  # noqa: E402
+
+    loaded = st_np.load_file(safetensors_path)
+    ordered = [loaded[f"weight_{i:03d}"] for i in range(len(loaded))]
+    pvad_model.set_weights(ordered)
+  else:
+    raise FileNotFoundError(
+        f"Neither model.weights.h5 nor model.safetensors found in "
+        f"{checkpoint_dir}"
+    )
   return pvad_model
 
 

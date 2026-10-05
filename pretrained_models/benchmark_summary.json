@@ -1,0 +1,1697 @@
+{
+  "dataset": {
+    "mls_dir": "/usr/local/google/home/quanw/Data/multilingual_librispeech",
+    "languages": [
+      "de",
+      "en",
+      "es",
+      "fr",
+      "it",
+      "nl",
+      "pl",
+      "pt"
+    ],
+    "num_train_speakers": 52,
+    "num_test_speakers": 35,
+    "speaker_verification": {
+      "roc_auc": 0.9521254427697005,
+      "mean_positive_cosine": 0.7130230230116655,
+      "mean_negative_cosine": -0.008187231908436694,
+      "num_test_speakers": 35,
+      "num_test_utterances": 315
+    }
+  },
+  "models": {
+    "pvad1_sc_baseline": {
+      "paper": "Personal VAD 1.0 (arXiv:1908.04284)",
+      "backbone": "lstm_v1",
+      "conditioning_mode": "sc",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.03966601794077591,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_sc_baseline/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_sc_baseline/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_sc_baseline/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_sc_baseline/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_sc_baseline/model_quantized.tflite",
+        "fp32_size_kb": 369.3,
+        "quant_size_kb": 196.43,
+        "safetensors_size_kb": 251.5,
+        "num_parameters": 64194
+      },
+      "evaluations": {
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8584298584298584,
+          "class_accuracies": {
+            "Speech (tss)": 0.874439461883408,
+            "Silence (ns)": 0.9674410418866596,
+            "Non-Target Speech (ntss)": 0.6990272373540856
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9435286843334334,
+            "Silence (ns)": 0.9603850397796858,
+            "Non-Target Speech (ntss)": 0.784831241259198
+          },
+          "mean_average_precision_micro": 0.9160628233435295,
+          "roc_aucs": {
+            "Speech (tss)": 0.937416700664684,
+            "Silence (ns)": 0.9905896675930832,
+            "Non-Target Speech (ntss)": 0.9164401705466529
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9056,
+              0.9277
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8528957528957529,
+          "class_accuracies": {
+            "Speech (tss)": 0.8659513132607303,
+            "Silence (ns)": 0.9699049630411827,
+            "Non-Target Speech (ntss)": 0.691828793774319
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9415783874458887,
+            "Silence (ns)": 0.9443057045469878,
+            "Non-Target Speech (ntss)": 0.7821456917417822
+          },
+          "mean_average_precision_micro": 0.9089947246971689,
+          "roc_aucs": {
+            "Speech (tss)": 0.9344081240186106,
+            "Silence (ns)": 0.9879413407216624,
+            "Non-Target Speech (ntss)": 0.9140202133332191
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8978,
+              0.9212
+            ]
+          }
+        },
+        "std_vad_non_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.9681681681681682,
+          "class_accuracies": {
+            "Speech": 0.9701611073292489,
+            "Silence": 0.9619852164730729
+          },
+          "average_precisions": {
+            "Speech": 0.9970855473187892,
+            "Silence": 0.9561773576300882
+          },
+          "mean_average_precision_micro": 0.9933665403085322,
+          "roc_aucs": {
+            "Speech": 0.9898692817504904,
+            "Silence": 0.989869321685677
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9906,
+              0.9959
+            ]
+          }
+        },
+        "std_vad_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9685971685971686,
+          "class_accuracies": {
+            "Speech": 0.970217835262083,
+            "Silence": 0.9635691657866948
+          },
+          "average_precisions": {
+            "Speech": 0.9972640565235467,
+            "Silence": 0.9603850397796858
+          },
+          "mean_average_precision_micro": 0.9936703297749876,
+          "roc_aucs": {
+            "Speech": 0.9905896476254897,
+            "Silence": 0.9905896675930832
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9921,
+              0.9953
+            ]
+          }
+        }
+      }
+    },
+    "pvad1_st_ce": {
+      "paper": "Personal VAD 1.0 (arXiv:1908.04284)",
+      "backbone": "lstm_v1",
+      "conditioning_mode": "st",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.20792707326737317,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_st_ce/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_st_ce/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_st_ce/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_st_ce/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_st_ce/model_quantized.tflite",
+        "fp32_size_kb": 371.0,
+        "quant_size_kb": 197.39,
+        "safetensors_size_kb": 252.75,
+        "num_parameters": 64515
+      },
+      "evaluations": {
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8377949377949377,
+          "class_accuracies": {
+            "Speech (tss)": 0.7851537475976937,
+            "Silence (ns)": 0.9792326645547342,
+            "Non-Target Speech (ntss)": 0.8093385214007782
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9394466544306617,
+            "Silence (ns)": 0.933599662478216,
+            "Non-Target Speech (ntss)": 0.7550063607990005
+          },
+          "mean_average_precision_micro": 0.8834320572873485,
+          "roc_aucs": {
+            "Speech (tss)": 0.9304741755559741,
+            "Silence (ns)": 0.9880658586340713,
+            "Non-Target Speech (ntss)": 0.9083437979823072
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8668,
+              0.9014
+            ]
+          }
+        },
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8299442299442299,
+          "class_accuracies": {
+            "Speech (tss)": 0.7947963800904977,
+            "Silence (ns)": 0.9799366420274551,
+            "Non-Target Speech (ntss)": 0.7683204369594903
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8897775109552888,
+            "Silence (ns)": 0.9302204238116503,
+            "Non-Target Speech (ntss)": 0.8758686308104469
+          },
+          "mean_average_precision_micro": 0.896169284930341,
+          "roc_aucs": {
+            "Speech (tss)": 0.9214489488315661,
+            "Silence (ns)": 0.9874137070500061,
+            "Non-Target Speech (ntss)": 0.9187863976976028
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8711,
+              0.9197
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8367653367653368,
+          "class_accuracies": {
+            "Speech (tss)": 0.8003683536194747,
+            "Silence (ns)": 0.9809926082365364,
+            "Non-Target Speech (ntss)": 0.7657587548638133
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9348271273630581,
+            "Silence (ns)": 0.9300049957806744,
+            "Non-Target Speech (ntss)": 0.730292150836247
+          },
+          "mean_average_precision_micro": 0.880416966810589,
+          "roc_aucs": {
+            "Speech (tss)": 0.9261158795977681,
+            "Silence (ns)": 0.987430469844661,
+            "Non-Target Speech (ntss)": 0.8995673588610806
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8646,
+              0.8976
+            ]
+          }
+        }
+      }
+    },
+    "pvad1_et_ce": {
+      "paper": "Personal VAD 1.0 (arXiv:1908.04284)",
+      "backbone": "lstm_v1",
+      "conditioning_mode": "et",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.14952547021675855,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_ce/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_ce/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_ce/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_ce/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_ce/model_quantized.tflite",
+        "fp32_size_kb": 627.24,
+        "quant_size_kb": 262.38,
+        "safetensors_size_kb": 507.75,
+        "num_parameters": 129795
+      },
+      "evaluations": {
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8064779064779065,
+          "class_accuracies": {
+            "Speech (tss)": 0.7143657911595132,
+            "Silence (ns)": 0.9704329461457233,
+            "Non-Target Speech (ntss)": 0.8490272373540856
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9361788132477267,
+            "Silence (ns)": 0.9535688242315461,
+            "Non-Target Speech (ntss)": 0.7816776554558251
+          },
+          "mean_average_precision_micro": 0.8664782906691187,
+          "roc_aucs": {
+            "Speech (tss)": 0.9276567082665854,
+            "Silence (ns)": 0.9888884935305396,
+            "Non-Target Speech (ntss)": 0.9131220916163599
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.846,
+              0.8897
+            ]
+          }
+        },
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8178464178464179,
+          "class_accuracies": {
+            "Speech (tss)": 0.7088235294117647,
+            "Silence (ns)": 0.9757127771911299,
+            "Non-Target Speech (ntss)": 0.8254437869822485
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8744939420536374,
+            "Silence (ns)": 0.9522418601381747,
+            "Non-Target Speech (ntss)": 0.8503613404248117
+          },
+          "mean_average_precision_micro": 0.8817251452992717,
+          "roc_aucs": {
+            "Speech (tss)": 0.9052446628537121,
+            "Silence (ns)": 0.9890668041395537,
+            "Non-Target Speech (ntss)": 0.9104404993926627
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8556,
+              0.9076
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.803989703989704,
+          "class_accuracies": {
+            "Speech (tss)": 0.7166079436258809,
+            "Silence (ns)": 0.9748328053502288,
+            "Non-Target Speech (ntss)": 0.8274319066147859
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.928608456149366,
+            "Silence (ns)": 0.9457522379757303,
+            "Non-Target Speech (ntss)": 0.7410017471403566
+          },
+          "mean_average_precision_micro": 0.8609348683171377,
+          "roc_aucs": {
+            "Speech (tss)": 0.9196682113664825,
+            "Silence (ns)": 0.987487197777495,
+            "Non-Target Speech (ntss)": 0.8984905368450582
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.841,
+              0.8823
+            ]
+          }
+        },
+        "std_vad_non_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.9298155298155298,
+          "class_accuracies": {
+            "Speech": 0.9113909689130928,
+            "Silence": 0.9869764167546639
+          },
+          "average_precisions": {
+            "Speech": 0.9388201502643849,
+            "Silence": 0.9522418601381747
+          },
+          "mean_average_precision_micro": 0.899217137995604,
+          "roc_aucs": {
+            "Speech": 0.8174016298508173,
+            "Silence": 0.9890668041395537
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8841,
+              0.9101
+            ]
+          }
+        },
+        "std_vad_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.932990132990133,
+          "class_accuracies": {
+            "Speech": 0.9167233945995008,
+            "Silence": 0.9834565293910594
+          },
+          "average_precisions": {
+            "Speech": 0.9552280236719355,
+            "Silence": 0.9535688242315461
+          },
+          "mean_average_precision_micro": 0.9212302831260368,
+          "roc_aucs": {
+            "Speech": 0.8583162071284787,
+            "Silence": 0.9888884935305396
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.912,
+              0.9306
+            ]
+          }
+        }
+      }
+    },
+    "pvad1_set_ce": {
+      "paper": "Personal VAD 1.0 (arXiv:1908.04284)",
+      "backbone": "lstm_v1",
+      "conditioning_mode": "set",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.13958317949436605,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_set_ce/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_set_ce/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_set_ce/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_set_ce/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_set_ce/model_quantized.tflite",
+        "fp32_size_kb": 628.32,
+        "quant_size_kb": 262.72,
+        "safetensors_size_kb": 508.75,
+        "num_parameters": 130051
+      },
+      "evaluations": {
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8219219219219219,
+          "class_accuracies": {
+            "Speech (tss)": 0.7378283151825753,
+            "Silence (ns)": 0.9551214361140443,
+            "Non-Target Speech (ntss)": 0.878988326848249
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.93847983822627,
+            "Silence (ns)": 0.9509846989508933,
+            "Non-Target Speech (ntss)": 0.7725250140869507
+          },
+          "mean_average_precision_micro": 0.8469425425203959,
+          "roc_aucs": {
+            "Speech (tss)": 0.9224234640601494,
+            "Silence (ns)": 0.9886596998535256,
+            "Non-Target Speech (ntss)": 0.9196425886943245
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8237,
+              0.8712
+            ]
+          }
+        },
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8404118404118404,
+          "class_accuracies": {
+            "Speech (tss)": 0.7649321266968325,
+            "Silence (ns)": 0.9545934530095037,
+            "Non-Target Speech (ntss)": 0.8425125170687301
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8699018007767755,
+            "Silence (ns)": 0.941600133376981,
+            "Non-Target Speech (ntss)": 0.8579966979785038
+          },
+          "mean_average_precision_micro": 0.873187497672043,
+          "roc_aucs": {
+            "Speech (tss)": 0.9062265507978748,
+            "Silence (ns)": 0.9874086951840642,
+            "Non-Target Speech (ntss)": 0.9133774838007305
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.846,
+              0.8976
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.823037323037323,
+          "class_accuracies": {
+            "Speech (tss)": 0.7558456117873158,
+            "Silence (ns)": 0.9574093629003871,
+            "Non-Target Speech (ntss)": 0.8377431906614786
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9316493669207584,
+            "Silence (ns)": 0.9401967021743238,
+            "Non-Target Speech (ntss)": 0.7462489092984453
+          },
+          "mean_average_precision_micro": 0.8521194945351186,
+          "roc_aucs": {
+            "Speech (tss)": 0.9171370621877208,
+            "Silence (ns)": 0.9871201884190035,
+            "Non-Target Speech (ntss)": 0.9066983193745195
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.831,
+              0.8749
+            ]
+          }
+        }
+      }
+    },
+    "pvad1_et_wpl": {
+      "paper": "Personal VAD 1.0 (arXiv:1908.04284)",
+      "backbone": "lstm_v1",
+      "conditioning_mode": "et",
+      "loss_type": "weighted_pairwise",
+      "final_train_loss": 0.036155367037281394,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_quantized.tflite",
+        "fp32_size_kb": 627.24,
+        "quant_size_kb": 262.38,
+        "safetensors_size_kb": 507.75,
+        "num_parameters": 129795
+      },
+      "evaluations": {
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8166023166023166,
+          "class_accuracies": {
+            "Speech (tss)": 0.7375080076873799,
+            "Silence (ns)": 0.9679690249912003,
+            "Non-Target Speech (ntss)": 0.8414396887159533
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9432276747432643,
+            "Silence (ns)": 0.943313510504849,
+            "Non-Target Speech (ntss)": 0.7695418970001937
+          },
+          "mean_average_precision_micro": 0.8651860129759977,
+          "roc_aucs": {
+            "Speech (tss)": 0.9302780419711147,
+            "Silence (ns)": 0.9874189235837805,
+            "Non-Target Speech (ntss)": 0.9126747118117049
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8467,
+              0.8853
+            ]
+          }
+        },
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8178464178464179,
+          "class_accuracies": {
+            "Speech (tss)": 0.7436651583710407,
+            "Silence (ns)": 0.9693769799366421,
+            "Non-Target Speech (ntss)": 0.794492489758762
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8767770465389643,
+            "Silence (ns)": 0.9399612417653818,
+            "Non-Target Speech (ntss)": 0.8557404666122287
+          },
+          "mean_average_precision_micro": 0.8836323663787015,
+          "roc_aucs": {
+            "Speech (tss)": 0.9116136365768466,
+            "Silence (ns)": 0.9871051078940921,
+            "Non-Target Speech (ntss)": 0.907873255193868
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8588,
+              0.9063
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8189189189189189,
+          "class_accuracies": {
+            "Speech (tss)": 0.7549647661755285,
+            "Silence (ns)": 0.9723688841957058,
+            "Non-Target Speech (ntss)": 0.8046692607003891
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.936761906521612,
+            "Silence (ns)": 0.9344043409148033,
+            "Non-Target Speech (ntss)": 0.7431960133108336
+          },
+          "mean_average_precision_micro": 0.8691027783455731,
+          "roc_aucs": {
+            "Speech (tss)": 0.9256162463738243,
+            "Silence (ns)": 0.9861325063874335,
+            "Non-Target Speech (ntss)": 0.8999072797123577
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8521,
+              0.888
+            ]
+          }
+        },
+        "std_vad_non_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8608322608322608,
+          "class_accuracies": {
+            "Speech": 0.8219877467665079,
+            "Silence": 0.9813445969728969
+          },
+          "average_precisions": {
+            "Speech": 0.9430070699741834,
+            "Silence": 0.9399612417653818
+          },
+          "mean_average_precision_micro": 0.8859844922187339,
+          "roc_aucs": {
+            "Speech": 0.8269088400289866,
+            "Silence": 0.9871051078940921
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8689,
+              0.9026
+            ]
+          }
+        },
+        "std_vad_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8844272844272845,
+          "class_accuracies": {
+            "Speech": 0.8529044701611074,
+            "Silence": 0.9822245688137979
+          },
+          "average_precisions": {
+            "Speech": 0.9557943130671311,
+            "Silence": 0.943313510504849
+          },
+          "mean_average_precision_micro": 0.9093420849445374,
+          "roc_aucs": {
+            "Speech": 0.8592117536922277,
+            "Silence": 0.9874189235837805
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8987,
+              0.9208
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_b1_lstm_std_vad": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "lstm_v2",
+      "conditioning_mode": "sc",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.04298209949311885,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b1_lstm_std_vad/model_quantized.tflite",
+        "fp32_size_kb": 6857.6,
+        "quant_size_kb": 1941.16,
+        "safetensors_size_kb": 6678.45,
+        "num_parameters": 1709314
+      },
+      "evaluations": {
+        "std_vad_non_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.9668811668811669,
+          "class_accuracies": {
+            "Speech": 0.9793510324483776,
+            "Silence": 0.928194297782471
+          },
+          "average_precisions": {
+            "Speech": 0.9966395284953815,
+            "Silence": 0.9413486649853531
+          },
+          "mean_average_precision_micro": 0.9929029680847838,
+          "roc_aucs": {
+            "Speech": 0.9880594390527949,
+            "Silence": 0.9880596387287287
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9901,
+              0.9952
+            ]
+          }
+        },
+        "std_vad_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9668811668811669,
+          "class_accuracies": {
+            "Speech": 0.9793510324483776,
+            "Silence": 0.928194297782471
+          },
+          "average_precisions": {
+            "Speech": 0.9965240624672271,
+            "Silence": 0.9342706293506927
+          },
+          "mean_average_precision_micro": 0.9927002274005371,
+          "roc_aucs": {
+            "Speech": 0.9874935874073814,
+            "Silence": 0.9874938370022988
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9908,
+              0.9946
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_b2_conformer_std_vad": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "sc",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.03716443182731217,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_quantized.tflite",
+        "fp32_size_kb": 2771.39,
+        "quant_size_kb": 880.12,
+        "safetensors_size_kb": 2680.11,
+        "num_parameters": 683458
+      },
+      "evaluations": {
+        "std_vad_non_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.9643929643929644,
+          "class_accuracies": {
+            "Speech": 0.9813932380304061,
+            "Silence": 0.9116508271735304
+          },
+          "average_precisions": {
+            "Speech": 0.9967379415514046,
+            "Silence": 0.9665287855700847
+          },
+          "mean_average_precision_micro": 0.9930493986845925,
+          "roc_aucs": {
+            "Speech": 0.9899722546296263,
+            "Silence": 0.9899724942407472
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9908,
+              0.995
+            ]
+          }
+        },
+        "std_vad_concat": {
+          "eval_mode": "std_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9661518661518661,
+          "class_accuracies": {
+            "Speech": 0.9806557749035625,
+            "Silence": 0.9211545230552622
+          },
+          "average_precisions": {
+            "Speech": 0.9968492418740119,
+            "Silence": 0.9725632924532177
+          },
+          "mean_average_precision_micro": 0.9936819478700964,
+          "roc_aucs": {
+            "Speech": 0.9908974181262779,
+            "Silence": 0.990896963863528
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9922,
+              0.9951
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_b0_lstm_concat": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "lstm_v2",
+      "conditioning_mode": "concat",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.5315577249194301,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b0_lstm_concat/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b0_lstm_concat/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b0_lstm_concat/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b0_lstm_concat/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b0_lstm_concat/model_quantized.tflite",
+        "fp32_size_kb": 7116.32,
+        "quant_size_kb": 2007.88,
+        "safetensors_size_kb": 6935.46,
+        "num_parameters": 1775107
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.601029601029601,
+          "class_accuracies": {
+            "Speech (tss)": 0.9796380090497737,
+            "Silence (ns)": 0.9415698697641676,
+            "Non-Target Speech (ntss)": 0.0
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.49931640723895,
+            "Silence (ns)": 0.9330485928064932,
+            "Non-Target Speech (ntss)": 0.48772450091924213
+          },
+          "mean_average_precision_micro": 0.7006388837321884,
+          "roc_aucs": {
+            "Speech (tss)": 0.6937676328306028,
+            "Silence (ns)": 0.9889656483114165,
+            "Non-Target Speech (ntss)": 0.6808097324687538
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.6789,
+              0.7236
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.7543972543972544,
+          "class_accuracies": {
+            "Speech (tss)": 0.9794202434336964,
+            "Silence (ns)": 0.9422738472368885,
+            "Non-Target Speech (ntss)": 0.0
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.7464393303798704,
+            "Silence (ns)": 0.9377516194088111,
+            "Non-Target Speech (ntss)": 0.31715807422402686
+          },
+          "mean_average_precision_micro": 0.8087716499329645,
+          "roc_aucs": {
+            "Speech (tss)": 0.7847436514474335,
+            "Silence (ns)": 0.989192460204786,
+            "Non-Target Speech (ntss)": 0.6847958269178467
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.7875,
+              0.8308
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.5999141999141999,
+          "class_accuracies": {
+            "Speech (tss)": 0.9760180995475113,
+            "Silence (ns)": 0.9426258359732489,
+            "Non-Target Speech (ntss)": 0.0
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.5037773241347742,
+            "Silence (ns)": 0.9231917409005015,
+            "Non-Target Speech (ntss)": 0.486674529075223
+          },
+          "mean_average_precision_micro": 0.6970230937910028,
+          "roc_aucs": {
+            "Speech (tss)": 0.6943399981862927,
+            "Silence (ns)": 0.9876639409304275,
+            "Non-Target Speech (ntss)": 0.6801773204649803
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.6766,
+              0.7188
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.7526812526812526,
+          "class_accuracies": {
+            "Speech (tss)": 0.975896860986547,
+            "Silence (ns)": 0.9429778247096093,
+            "Non-Target Speech (ntss)": 0.0
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.7514854009238697,
+            "Silence (ns)": 0.9305436469059601,
+            "Non-Target Speech (ntss)": 0.33419396288146763
+          },
+          "mean_average_precision_micro": 0.8091972851535134,
+          "roc_aucs": {
+            "Speech (tss)": 0.7952778004529886,
+            "Silence (ns)": 0.9886074546454087,
+            "Non-Target Speech (ntss)": 0.6985343406093338
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.7889,
+              0.8308
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_e0_conformer_concat": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "concat",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.5017971860807996,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e0_conformer_concat/model_quantized.tflite",
+        "fp32_size_kb": 2837.54,
+        "quant_size_kb": 898.28,
+        "safetensors_size_kb": 2744.36,
+        "num_parameters": 699907
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.6151866151866152,
+          "class_accuracies": {
+            "Speech (tss)": 0.960633484162896,
+            "Silence (ns)": 0.958113340373108,
+            "Non-Target Speech (ntss)": 0.04597177969959035
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.6074574393505288,
+            "Silence (ns)": 0.9611598472974494,
+            "Non-Target Speech (ntss)": 0.6266953658090519
+          },
+          "mean_average_precision_micro": 0.7408429278482976,
+          "roc_aucs": {
+            "Speech (tss)": 0.7690439104779118,
+            "Silence (ns)": 0.9897623552878622,
+            "Non-Target Speech (ntss)": 0.76508816814405
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.7194,
+              0.7632
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.7744315744315744,
+          "class_accuracies": {
+            "Speech (tss)": 0.9297725816784113,
+            "Silence (ns)": 0.9588173178458289,
+            "Non-Target Speech (ntss)": 0.19319066147859923
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8335688258376212,
+            "Silence (ns)": 0.9678144320359481,
+            "Non-Target Speech (ntss)": 0.5070658799634897
+          },
+          "mean_average_precision_micro": 0.850230635420085,
+          "roc_aucs": {
+            "Speech (tss)": 0.8472361077057187,
+            "Silence (ns)": 0.9910630043864012,
+            "Non-Target Speech (ntss)": 0.7817958579691585
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8323,
+              0.8688
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.6137280137280138,
+          "class_accuracies": {
+            "Speech (tss)": 0.9343891402714932,
+            "Silence (ns)": 0.9595212953185498,
+            "Non-Target Speech (ntss)": 0.067592171142467
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.5998736000517946,
+            "Silence (ns)": 0.950188088339673,
+            "Non-Target Speech (ntss)": 0.5981721680228345
+          },
+          "mean_average_precision_micro": 0.7343960413182419,
+          "roc_aucs": {
+            "Speech (tss)": 0.7605564328756329,
+            "Silence (ns)": 0.9888910693500876,
+            "Non-Target Speech (ntss)": 0.7574228563608889
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.7118,
+              0.7596
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.7425139425139425,
+          "class_accuracies": {
+            "Speech (tss)": 0.8684336963484945,
+            "Silence (ns)": 0.9649771207321366,
+            "Non-Target Speech (ntss)": 0.19066147859922178
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8249367262784663,
+            "Silence (ns)": 0.9584908655546589,
+            "Non-Target Speech (ntss)": 0.41888989695802253
+          },
+          "mean_average_precision_micro": 0.8329035288495628,
+          "roc_aucs": {
+            "Speech (tss)": 0.8306289802394368,
+            "Silence (ns)": 0.9894973953073121,
+            "Non-Target Speech (ntss)": 0.7595384650801231
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8167,
+              0.8498
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_e1_conformer_film_dvector": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "film_dvector",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.24699985218602558,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e1_conformer_film_dvector/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e1_conformer_film_dvector/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e1_conformer_film_dvector/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e1_conformer_film_dvector/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e1_conformer_film_dvector/model_quantized.tflite",
+        "fp32_size_kb": 2902.66,
+        "quant_size_kb": 916.95,
+        "safetensors_size_kb": 2809.16,
+        "num_parameters": 716419
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.820935220935221,
+          "class_accuracies": {
+            "Speech (tss)": 0.8479638009049774,
+            "Silence (ns)": 0.9714889123548046,
+            "Non-Target Speech (ntss)": 0.6964041875284479
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8695308786934817,
+            "Silence (ns)": 0.9679396679250613,
+            "Non-Target Speech (ntss)": 0.8795660724830413
+          },
+          "mean_average_precision_micro": 0.9024825629011296,
+          "roc_aucs": {
+            "Speech (tss)": 0.9196325991988418,
+            "Silence (ns)": 0.9907032083210232,
+            "Non-Target Speech (ntss)": 0.9125495998506057
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8834,
+              0.9219
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8360789360789361,
+          "class_accuracies": {
+            "Speech (tss)": 0.8119795003203075,
+            "Silence (ns)": 0.9730728616684267,
+            "Non-Target Speech (ntss)": 0.7431906614785992
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9370170099807384,
+            "Silence (ns)": 0.9710175664124057,
+            "Non-Target Speech (ntss)": 0.7708581676525235
+          },
+          "mean_average_precision_micro": 0.906018703363707,
+          "roc_aucs": {
+            "Speech (tss)": 0.9336826965048894,
+            "Silence (ns)": 0.9913439933525486,
+            "Non-Target Speech (ntss)": 0.9052210853397121
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8933,
+              0.9196
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8167310167310168,
+          "class_accuracies": {
+            "Speech (tss)": 0.8386877828054299,
+            "Silence (ns)": 0.9725448785638859,
+            "Non-Target Speech (ntss)": 0.6939007737824305
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8634877322069622,
+            "Silence (ns)": 0.9622152214381554,
+            "Non-Target Speech (ntss)": 0.8726304249360568
+          },
+          "mean_average_precision_micro": 0.8959975427930422,
+          "roc_aucs": {
+            "Speech (tss)": 0.9148469449977641,
+            "Silence (ns)": 0.9901489079283885,
+            "Non-Target Speech (ntss)": 0.9080854957590441
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8774,
+              0.9164
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8347919347919348,
+          "class_accuracies": {
+            "Speech (tss)": 0.8130204996796925,
+            "Silence (ns)": 0.9758887715593101,
+            "Non-Target Speech (ntss)": 0.7317120622568093
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9338318701069106,
+            "Silence (ns)": 0.9667767298676556,
+            "Non-Target Speech (ntss)": 0.7594576970705623
+          },
+          "mean_average_precision_micro": 0.900868993280859,
+          "roc_aucs": {
+            "Speech (tss)": 0.9302378740437983,
+            "Silence (ns)": 0.9902468240144974,
+            "Non-Target Speech (ntss)": 0.9007911820699018
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8883,
+              0.914
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_e2_conformer_film_cos": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "film_cos",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.3063827746136244,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e2_conformer_film_cos/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e2_conformer_film_cos/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e2_conformer_film_cos/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e2_conformer_film_cos/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e2_conformer_film_cos/model_quantized.tflite",
+        "fp32_size_kb": 4293.5,
+        "quant_size_kb": 1363.99,
+        "safetensors_size_kb": 4150.78,
+        "num_parameters": 1058499
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8497640497640497,
+          "class_accuracies": {
+            "Speech (tss)": 0.8658371040723982,
+            "Silence (ns)": 0.9598732840549102,
+            "Non-Target Speech (ntss)": 0.7624032771961766
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8956511230329919,
+            "Silence (ns)": 0.9728709119979312,
+            "Non-Target Speech (ntss)": 0.9011743211527674
+          },
+          "mean_average_precision_micro": 0.920669512468378,
+          "roc_aucs": {
+            "Speech (tss)": 0.9358343522407102,
+            "Silence (ns)": 0.9914910496860015,
+            "Non-Target Speech (ntss)": 0.9330700012418182
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.905,
+              0.9362
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8517374517374517,
+          "class_accuracies": {
+            "Speech (tss)": 0.8212684176809737,
+            "Silence (ns)": 0.9626891939457938,
+            "Non-Target Speech (ntss)": 0.8031128404669261
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9492241774527728,
+            "Silence (ns)": 0.973895758578603,
+            "Non-Target Speech (ntss)": 0.8172373698439445
+          },
+          "mean_average_precision_micro": 0.915317357046261,
+          "roc_aucs": {
+            "Speech (tss)": 0.9452176547441559,
+            "Silence (ns)": 0.9921194997367073,
+            "Non-Target Speech (ntss)": 0.9260421355593198
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9024,
+              0.9277
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8455598455598455,
+          "class_accuracies": {
+            "Speech (tss)": 0.8608597285067874,
+            "Silence (ns)": 0.9605772615276311,
+            "Non-Target Speech (ntss)": 0.7558033682294037
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.891819647087717,
+            "Silence (ns)": 0.961500037491971,
+            "Non-Target Speech (ntss)": 0.8959964712667913
+          },
+          "mean_average_precision_micro": 0.9140122688212549,
+          "roc_aucs": {
+            "Speech (tss)": 0.9323921235072096,
+            "Silence (ns)": 0.9900568573228392,
+            "Non-Target Speech (ntss)": 0.9287356267078524
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8967,
+              0.9309
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8531531531531531,
+          "class_accuracies": {
+            "Speech (tss)": 0.8251921844971173,
+            "Silence (ns)": 0.9619852164730729,
+            "Non-Target Speech (ntss)": 0.8007782101167316
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.944244181981084,
+            "Silence (ns)": 0.9628188762721525,
+            "Non-Target Speech (ntss)": 0.8071250237933063
+          },
+          "mean_average_precision_micro": 0.9085873146628365,
+          "roc_aucs": {
+            "Speech (tss)": 0.9414845126205651,
+            "Silence (ns)": 0.9901713415195674,
+            "Non-Target Speech (ntss)": 0.9204056157903415
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.897,
+              0.921
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_e3_conformer_film_dvector_cos": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "film_dvector_cos",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.30042495561200516,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e3_conformer_film_dvector_cos/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e3_conformer_film_dvector_cos/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e3_conformer_film_dvector_cos/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e3_conformer_film_dvector_cos/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e3_conformer_film_dvector_cos/model_quantized.tflite",
+        "fp32_size_kb": 4422.14,
+        "quant_size_kb": 1397.8,
+        "safetensors_size_kb": 4278.78,
+        "num_parameters": 1091267
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8368940368940369,
+          "class_accuracies": {
+            "Speech (tss)": 0.8832579185520362,
+            "Silence (ns)": 0.971840901091165,
+            "Non-Target Speech (ntss)": 0.7030040964952208
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8948211416983682,
+            "Silence (ns)": 0.9729166225689799,
+            "Non-Target Speech (ntss)": 0.8978125048190029
+          },
+          "mean_average_precision_micro": 0.9157540787745823,
+          "roc_aucs": {
+            "Speech (tss)": 0.9341206177862139,
+            "Silence (ns)": 0.9911510015704912,
+            "Non-Target Speech (ntss)": 0.9295275913361593
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8985,
+              0.9305
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8601029601029601,
+          "class_accuracies": {
+            "Speech (tss)": 0.8509769378603459,
+            "Silence (ns)": 0.9681450193593805,
+            "Non-Target Speech (ntss)": 0.76284046692607
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9475821078207547,
+            "Silence (ns)": 0.9776330953912277,
+            "Non-Target Speech (ntss)": 0.81694993015516
+          },
+          "mean_average_precision_micro": 0.9221606917420758,
+          "roc_aucs": {
+            "Speech (tss)": 0.9447705687313822,
+            "Silence (ns)": 0.992642286275067,
+            "Non-Target Speech (ntss)": 0.9224301184875227
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9106,
+              0.9333
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.8318318318318318,
+          "class_accuracies": {
+            "Speech (tss)": 0.8760180995475113,
+            "Silence (ns)": 0.9714889123548046,
+            "Non-Target Speech (ntss)": 0.6970869367319071
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8891607845768953,
+            "Silence (ns)": 0.9580106383326948,
+            "Non-Target Speech (ntss)": 0.8908663087077978
+          },
+          "mean_average_precision_micro": 0.9077822683604144,
+          "roc_aucs": {
+            "Speech (tss)": 0.9291739032543537,
+            "Silence (ns)": 0.9899315806418815,
+            "Non-Target Speech (ntss)": 0.9244172372123922
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.888,
+              0.9245
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8551694551694552,
+          "class_accuracies": {
+            "Speech (tss)": 0.8407270980140935,
+            "Silence (ns)": 0.9706089405139036,
+            "Non-Target Speech (ntss)": 0.7626459143968871
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9444201928007672,
+            "Silence (ns)": 0.9665517510865957,
+            "Non-Target Speech (ntss)": 0.7994459869577771
+          },
+          "mean_average_precision_micro": 0.9127312092313037,
+          "roc_aucs": {
+            "Speech (tss)": 0.9404142077299772,
+            "Silence (ns)": 0.9909696708629763,
+            "Non-Target Speech (ntss)": 0.9165718013401318
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9008,
+              0.9241
+            ]
+          }
+        },
+        "no_enrollment_non_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.956928356928357,
+          "class_accuracies": {
+            "Speech": 0.9480372135239392,
+            "Silence": 0.9845124956001408
+          },
+          "average_precisions": {
+            "Speech": 0.9627975087787107,
+            "Silence": 0.9734968588905925
+          },
+          "mean_average_precision_micro": 0.8936809103504213,
+          "roc_aucs": {
+            "Speech": 0.9321376179316018,
+            "Silence": 0.9919499249498036
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8808,
+              0.9056
+            ]
+          }
+        },
+        "no_enrollment_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9577005577005577,
+          "class_accuracies": {
+            "Speech": 0.9498525073746312,
+            "Silence": 0.9820485744456178
+          },
+          "average_precisions": {
+            "Speech": 0.949880414913393,
+            "Silence": 0.9759505210842695
+          },
+          "mean_average_precision_micro": 0.88908391666131,
+          "roc_aucs": {
+            "Speech": 0.9112486598749694,
+            "Silence": 0.9923389336043176
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8801,
+              0.8993
+            ]
+          }
+        },
+        "no_enrollment_concat_tflite_quant": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9566280566280566,
+          "class_accuracies": {
+            "Speech": 0.9476968459269344,
+            "Silence": 0.9843365012319606
+          },
+          "average_precisions": {
+            "Speech": 0.9566652034377052,
+            "Silence": 0.9568720369292698
+          },
+          "mean_average_precision_micro": 0.8884273290451085,
+          "roc_aucs": {
+            "Speech": 0.9227639210666655,
+            "Silence": 0.9899555916729386
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8769,
+              0.9005
+            ]
+          }
+        }
+      }
+    },
+    "pvad2_e5_conformer_unified": {
+      "paper": "Personal VAD 2.0 (arXiv:2204.03793)",
+      "backbone": "conformer",
+      "conditioning_mode": "film_dvector_cos",
+      "loss_type": "cross_entropy",
+      "final_train_loss": 0.4244386215101589,
+      "artifacts": {
+        "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e5_conformer_unified/model.weights.h5",
+        "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e5_conformer_unified/model.safetensors",
+        "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e5_conformer_unified/model_config.json",
+        "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e5_conformer_unified/model_fp32.tflite",
+        "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_e5_conformer_unified/model_quantized.tflite",
+        "fp32_size_kb": 4422.14,
+        "quant_size_kb": 1397.8,
+        "safetensors_size_kb": 4278.78,
+        "num_parameters": 1091267
+      },
+      "evaluations": {
+        "personal_vad_non_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.7723723723723723,
+          "class_accuracies": {
+            "Speech (tss)": 0.9409502262443439,
+            "Silence (ns)": 0.9728968673002464,
+            "Non-Target Speech (ntss)": 0.473145197997269
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8578314232690698,
+            "Silence (ns)": 0.9626930963611868,
+            "Non-Target Speech (ntss)": 0.8784694915966269
+          },
+          "mean_average_precision_micro": 0.8574418145217703,
+          "roc_aucs": {
+            "Speech (tss)": 0.9126792833980117,
+            "Silence (ns)": 0.9912016194197466,
+            "Non-Target Speech (ntss)": 0.9123644084780382
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8334,
+              0.8798
+            ]
+          }
+        },
+        "personal_vad_concat": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.8412698412698413,
+          "class_accuracies": {
+            "Speech (tss)": 0.9208840486867392,
+            "Silence (ns)": 0.970960929250264,
+            "Non-Target Speech (ntss)": 0.5044747081712062
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9250043155802636,
+            "Silence (ns)": 0.9644400718166123,
+            "Non-Target Speech (ntss)": 0.755758270156447
+          },
+          "mean_average_precision_micro": 0.9091631939744818,
+          "roc_aucs": {
+            "Speech (tss)": 0.9240475439678422,
+            "Silence (ns)": 0.9912460922421347,
+            "Non-Target Speech (ntss)": 0.8966001704609943
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8956,
+              0.9216
+            ]
+          }
+        },
+        "personal_vad_non_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 11655,
+          "overall_accuracy": 0.7685113685113685,
+          "class_accuracies": {
+            "Speech (tss)": 0.9305429864253394,
+            "Silence (ns)": 0.9743048222456882,
+            "Non-Target Speech (ntss)": 0.4724624487938097
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.8473918477327892,
+            "Silence (ns)": 0.9490373069052553,
+            "Non-Target Speech (ntss)": 0.8662404275949374
+          },
+          "mean_average_precision_micro": 0.8472641967855071,
+          "roc_aucs": {
+            "Speech (tss)": 0.9043296006404263,
+            "Silence (ns)": 0.9892753057497803,
+            "Non-Target Speech (ntss)": 0.9041174450241616
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.8204,
+              0.871
+            ]
+          }
+        },
+        "personal_vad_concat_tflite_quant": {
+          "eval_mode": "personal_vad",
+          "num_frames": 23310,
+          "overall_accuracy": 0.824924924924925,
+          "class_accuracies": {
+            "Speech (tss)": 0.9015054452274183,
+            "Silence (ns)": 0.9780007039774727,
+            "Non-Target Speech (ntss)": 0.4696498054474708
+          },
+          "average_precisions": {
+            "Speech (tss)": 0.9162371584569482,
+            "Silence (ns)": 0.9533442196238203,
+            "Non-Target Speech (ntss)": 0.7171311468349278
+          },
+          "mean_average_precision_micro": 0.8939218331132592,
+          "roc_aucs": {
+            "Speech (tss)": 0.9135881812276249,
+            "Silence (ns)": 0.9893048428123092,
+            "Non-Target Speech (ntss)": 0.8827853454940264
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.877,
+              0.9078
+            ]
+          }
+        },
+        "no_enrollment_non_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 11655,
+          "overall_accuracy": 0.962076362076362,
+          "class_accuracies": {
+            "Speech": 0.9552983889267075,
+            "Silence": 0.9831045406546991
+          },
+          "average_precisions": {
+            "Speech": 0.9961606709706488,
+            "Silence": 0.9598834130473186
+          },
+          "mean_average_precision_micro": 0.9517417971504362,
+          "roc_aucs": {
+            "Speech": 0.98912642737343,
+            "Silence": 0.9908606727625333
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9356,
+              0.9671
+            ]
+          }
+        },
+        "no_enrollment_concat": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9617331617331617,
+          "class_accuracies": {
+            "Speech": 0.9556387565237123,
+            "Silence": 0.980640619500176
+          },
+          "average_precisions": {
+            "Speech": 0.9956766855611915,
+            "Silence": 0.9596046318781807
+          },
+          "mean_average_precision_micro": 0.952232699110322,
+          "roc_aucs": {
+            "Speech": 0.9881606148485256,
+            "Silence": 0.9907730948979045
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9399,
+              0.9624
+            ]
+          }
+        },
+        "no_enrollment_concat_tflite_quant": {
+          "eval_mode": "personal_vad_std_eval",
+          "num_frames": 23310,
+          "overall_accuracy": 0.9561132561132561,
+          "class_accuracies": {
+            "Speech": 0.9466757431359202,
+            "Silence": 0.9853924674410419
+          },
+          "average_precisions": {
+            "Speech": 0.9950971651569402,
+            "Silence": 0.9388977787737846
+          },
+          "mean_average_precision_micro": 0.9384181869067836,
+          "roc_aucs": {
+            "Speech": 0.9856526451829738,
+            "Silence": 0.9879185077786157
+          },
+          "bootstrap_ci": {
+            "mAP_micro_95_ci": [
+              0.9249,
+              0.9511
+            ]
+          }
+        }
+      }
+    }
+  },
+  "elapsed_seconds": 1891.08
+}

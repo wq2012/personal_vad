@@ -325,7 +325,7 @@ def concat_utterance_group(
   total = len(utterances)
   while idx < total:
     group_size = int(rng.integers(min_utterances, max_utterances + 1))
-    group = utterances[idx : min(idx + group_size, total)]
+    group = utterances[idx:min(idx + group_size, total)]
     idx += len(group)
 
     target_index = int(rng.integers(0, len(group)))
@@ -406,23 +406,29 @@ def create_tf_dataset(
   all_masks = np.zeros((num_examples, max_frames), dtype=np.float32)
 
   rng = np.random.default_rng(seed)
-  for i, utt in enumerate(utterances):
+  order = (
+      rng.permutation(num_examples)
+      if shuffle
+      else np.arange(num_examples, dtype=np.int32)
+  )
+  for out_i, src_i in enumerate(order):
+    utt = utterances[int(src_i)]
     length = min(utt.features.shape[0], max_frames)
-    all_features[i, :length, :] = utt.features[:length]
+    all_features[out_i, :length, :] = utt.features[:length]
     emb, lbl, dropped = apply_enrollment_less_conditioning(
         utt.speaker_embedding,
         utt.labels[:length],
         enrollment_less_prob=enrollment_less_prob,
         rng=rng,
     )
-    all_embeddings[i, :] = emb
-    all_labels[i, :length] = lbl
-    all_masks[i, :length] = 1.0
+    all_embeddings[out_i, :] = emb
+    all_labels[out_i, :length] = lbl
+    all_masks[out_i, :length] = 1.0
     if utt.cosine_scores is not None and not dropped:
       cos = np.asarray(utt.cosine_scores[:length], dtype=np.float32).reshape(
           length, 1
       )
-      all_cosine_scores[i, :length, :] = cos
+      all_cosine_scores[out_i, :length, :] = cos
 
   ds = tf.data.Dataset.from_tensor_slices((
       {
@@ -434,5 +440,9 @@ def create_tf_dataset(
       all_masks,
   ))
   if shuffle:
-    ds = ds.shuffle(buffer_size=num_examples, seed=seed)
-  return ds.batch(batch_size)
+    ds = ds.shuffle(
+        buffer_size=min(num_examples, 64),
+        seed=seed,
+        reshuffle_each_iteration=True,
+    )
+  return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)

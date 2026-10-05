@@ -50,7 +50,7 @@ class LayersTest(unittest.TestCase):
     attn_c, valid_c, conv_c = block.init_cache(batch_size=1)
     stream_outputs = []
     for t in range(8):
-      step_in = inputs[:, t : t + 1, :]
+      step_in = inputs[:, t:t + 1, :]
       step_out, attn_c, valid_c, conv_c = block.stream_step(
           step_in, attn_c, valid_c, conv_c
       )
@@ -81,7 +81,7 @@ class LayersTest(unittest.TestCase):
     stream_sims = []
     for t in range(6):
       step_sim, caches = prenet.stream_step(
-          features[:, t : t + 1, :], target_emb, caches
+          features[:, t:t + 1, :], target_emb, caches
       )
       stream_sims.append(step_sim.numpy())
     stream_sims_concat = np.concatenate(stream_sims, axis=1)

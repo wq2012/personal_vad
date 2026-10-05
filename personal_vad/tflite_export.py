@@ -77,23 +77,16 @@ def export_to_tflite(
           speaker_embedding=speaker_embedding,
           cosine_score=cosine_score,
       )
-    # For LSTM backbones, unroll across `sequence_length` using `stream_step`
-    # so the TFLite graph uses pure TFLITE_BUILTINS without TensorList ops.
+    # For LSTM backbones, run `stream_step` on the chunk so `lstm.cell` is
+    # unrolled into pure TFLITE_BUILTINS without TensorList ops.
     state = pvad_model.init_streaming_state(batch_size=1)
-    probs_steps = []
-    for t in range(sequence_length):
-      frame_feat = features[:, t : t + 1, :]
-      frame_cos = (
-          cosine_score[:, t : t + 1, :] if cosine_score is not None else None
-      )
-      _, step_probs, state = pvad_model.stream_step(
-          frame_feat,
-          speaker_embedding=speaker_embedding,
-          state=state,
-          cosine_score=frame_cos,
-      )
-      probs_steps.append(step_probs)
-    return tf.concat(probs_steps, axis=1)
+    _, probs, _ = pvad_model.stream_step(
+        features,
+        speaker_embedding=speaker_embedding,
+        state=state,
+        cosine_score=cosine_score,
+    )
+    return probs
 
   feat_spec = tf.TensorSpec(
       shape=[1, sequence_length, cfg.feature_dim],

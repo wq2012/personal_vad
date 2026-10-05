@@ -35,6 +35,7 @@ rescale_cosine_scores = online_percentile.rescale_cosine_scores
 
 try:
   from . import frontend
+  from . import inference
   from . import layers
   from . import loss
   from . import model
@@ -43,6 +44,9 @@ try:
   LogMelFrontend = frontend.LogMelFrontend
   concat_meanstd = frontend.concat_meanstd
   stack_and_subsample_frames = frontend.stack_and_subsample_frames
+
+  PersonalVadInferenceEngine = inference.PersonalVadInferenceEngine
+  load_pretrained = inference.load_pretrained
 
   FeatureWiseModulationLayer = layers.FeatureWiseModulationLayer
   ConformerBlock = layers.ConformerBlock

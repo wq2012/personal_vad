@@ -26,23 +26,56 @@ from scripts import train  # noqa: E402
 def collect_model_predictions(
     pvad_model: model_lib.PersonalVadModel,
     utterances: Sequence[prepare_dataset.dataset.UtteranceData],
+    batch_size: int = 64,
+    include_cosine_column: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-  """Runs inference with a Keras `PersonalVadModel` over `utterances`."""
+  """Runs batched inference with a `PersonalVadModel` over `utterances`."""
+  if not utterances:
+    return np.zeros((0, 3), dtype=np.float32), np.zeros((0,), dtype=np.int32)
+
+  max_frames = max(u.features.shape[0] for u in utterances)
+  num_utts = len(utterances)
+  feat_dim = utterances[0].features.shape[1]
+  emb_dim = utterances[0].speaker_embedding.shape[0]
+  has_cos = any(u.cosine_scores is not None for u in utterances)
+
+  features_pad = np.zeros((num_utts, max_frames, feat_dim), dtype=np.float32)
+  spk_pad = np.zeros((num_utts, emb_dim), dtype=np.float32)
+  cos_pad = (
+      np.zeros((num_utts, max_frames, 1), dtype=np.float32)
+      if has_cos
+      else None
+  )
+  for i, utt in enumerate(utterances):
+    length = utt.features.shape[0]
+    features_pad[i, :length, :] = utt.features
+    spk_pad[i, :] = utt.speaker_embedding
+    if cos_pad is not None and utt.cosine_scores is not None:
+      cos_pad[i, :length, :] = utt.cosine_scores.reshape(-1, 1)[:length]
+
   all_scores = []
   all_labels = []
-  for utt in utterances:
-    features = np.expand_dims(utt.features, axis=0)
-    spk_emb = np.expand_dims(utt.speaker_embedding, axis=0)
-    cos = (
-        np.expand_dims(utt.cosine_scores.reshape(-1, 1), axis=0)
-        if utt.cosine_scores is not None
-        else None
-    )
+  for start in range(0, num_utts, batch_size):
+    end = min(start + batch_size, num_utts)
+    b_feat = features_pad[start:end]
+    b_spk = spk_pad[start:end]
+    b_cos = cos_pad[start:end] if cos_pad is not None else None
     probs = pvad_model.predict_proba(
-        features, speaker_embedding=spk_emb, cosine_score=cos
-    ).numpy()[0]
-    all_scores.append(probs)
-    all_labels.append(utt.labels)
+        b_feat, speaker_embedding=b_spk, cosine_score=b_cos
+    ).numpy()
+    for j, utt in enumerate(utterances[start:end]):
+      length = utt.features.shape[0]
+      utt_probs = probs[j, :length]
+      if (
+          include_cosine_column
+          and utt_probs.shape[1] == 2
+          and utt.cosine_scores is not None
+      ):
+        utt_cos = utt.cosine_scores.reshape(-1, 1)[:length]
+        utt_probs = np.concatenate([utt_probs, utt_cos], axis=1)
+      all_scores.append(utt_probs)
+      all_labels.append(utt.labels)
+
   return (
       np.concatenate(all_scores, axis=0),
       np.concatenate(all_labels, axis=0),
@@ -52,6 +85,7 @@ def collect_model_predictions(
 def collect_tflite_predictions(
     runner: tflite_export.TFLitePersonalVadRunner,
     utterances: Sequence[prepare_dataset.dataset.UtteranceData],
+    include_cosine_column: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
   """Runs inference with a `TFLitePersonalVadRunner` over `utterances`."""
   all_scores = []
@@ -62,6 +96,13 @@ def collect_tflite_predictions(
         speaker_embedding=utt.speaker_embedding,
         cosine_score=utt.cosine_scores,
     )
+    if (
+        include_cosine_column
+        and probs.shape[1] == 2
+        and utt.cosine_scores is not None
+    ):
+      utt_cos = utt.cosine_scores.reshape(-1, 1)[: probs.shape[0]]
+      probs = np.concatenate([probs, utt_cos], axis=1)
     all_scores.append(probs)
     all_labels.append(utt.labels)
   return (
@@ -131,10 +172,14 @@ def main(argv: Optional[Sequence[str]] = None) -> eval_lib.EvaluationMetrics:
     utterances = prepare_dataset.load_utterances_from_npz(args.eval_npz)
     if args.tflite_path is not None:
       runner = tflite_export.TFLitePersonalVadRunner(args.tflite_path)
-      scores, labels = collect_tflite_predictions(runner, utterances)
+      scores, labels = collect_tflite_predictions(
+          runner, utterances, include_cosine_column=args.sc_baseline
+      )
     elif args.checkpoint_dir is not None:
       pvad_model = train.load_checkpoint(args.checkpoint_dir)
-      scores, labels = collect_model_predictions(pvad_model, utterances)
+      scores, labels = collect_model_predictions(
+          pvad_model, utterances, include_cosine_column=args.sc_baseline
+      )
     else:
       raise ValueError(
           "Must specify either --checkpoint_dir or --tflite_path when "

@@ -98,7 +98,7 @@ def stack_and_subsample_frames(
   num_frames = tf.shape(features)[1]
   slices = []
   for offset in range(context_size):
-    slices.append(padded[:, offset : offset + num_frames, :])
+    slices.append(padded[:, offset:offset + num_frames, :])
   stacked = tf.concat(slices, axis=-1)
   if frame_stride > 1:
     stacked = stacked[:, ::frame_stride, :]
