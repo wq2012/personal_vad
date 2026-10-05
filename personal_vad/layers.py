@@ -10,6 +10,7 @@ Implements:
   from Section 2.2.2 of Personal VAD 2.0 (arXiv:2204.03793).
 """
 
+from typing import Union
 import tensorflow as tf
 
 
@@ -522,7 +523,7 @@ class SpeakerPreNet(tf.keras.layers.Layer):
       target_embedding: tf.Tensor,
       training: bool = False,
       return_embeddings: bool = False,
-  ) -> tf.Tensor | tuple[tf.Tensor, tf.Tensor]:
+  ) -> Union[tf.Tensor, tuple[tf.Tensor, tf.Tensor]]:
     """Computes frame-level cosine similarity (and optionally prenet d-vectors).
 
     Args:
