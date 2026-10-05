@@ -1,14 +1,19 @@
 """Unit tests for `personal_vad.inference` and `scripts.inference`."""
 
 import os
+import sys
 import tempfile
 import unittest
 import numpy as np
 import soundfile as sf
 import tensorflow as tf
-import personal_vad
-from scripts import inference as inference_cli
-from scripts import train
+
+sys.path.insert(
+    0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+)
+import personal_vad  # noqa: E402
+from scripts import inference as inference_cli  # noqa: E402
+from scripts import train  # noqa: E402
 
 
 class InferenceTest(unittest.TestCase):
