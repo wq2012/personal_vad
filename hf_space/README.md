@@ -28,6 +28,13 @@ short_description: Speaker-conditioned voice activity detection (Personal VAD)
 3. **Target-Speaker-Filtered Audio Playback**:
    - Listen to the original multi-speaker recording alongside the gated output audio where non-target speakers (`ntss`) and background silence (`ns`) are suppressed so only the target speaker (`tss`) passes through.
 
+## Speaker Embedding (`d-vector`) Extractor Design & Transparency
+
+Whereas the original Personal VAD 1.0 and 2.0 papers used Google's proprietary 4.88M-parameter 3-layer GE2E LSTM speaker verification model trained on internal vendor datasets, this open-source reproduction uses our own self-contained, non-neural **open-set 256-D speaker subspace extractor** (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) trained from scratch on the **98 training speakers** (`922` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset:
+- Extracts a **360-D multi-resolution acoustic statistic vector** over voiced speech frames (40-D log-Mel `[mean, std, p10, p90, delta_std]` = 200-D concatenated with 80-D log-Mel `[mean, std]` = 160-D; or over a 31-frame / ~310 ms causal sliding window for frame-level scores `s_t`).
+- Projects onto a **256-D discriminative subspace** fitted via regularized Linear Discriminant Analysis (LDA) + orthogonal PCA completion, followed by L2 normalization (`||e||_2 = 1`).
+- Achieves an open-set speaker verification **ROC-AUC of `0.9521`** (mean same-speaker cosine similarity `0.7130` vs. different-speaker `-0.0082`) across the **35 held-out unseen test speakers** (`315` utterances).
+
 ## Running the Full Gradio App Locally
 
 This repository includes both a browser-native interactive application (`index.html`) and a full Python Gradio application (`app.py`):

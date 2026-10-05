@@ -281,7 +281,12 @@ def build_gradio_interface() -> gr.Blocks:
         "**Personal VAD 1.0** ([arXiv:1908.04284]"
         "(https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** "
         "([arXiv:2204.03793](https://arxiv.org/abs/2204.03793)) trained on "
-        "the 8-language Multilingual LibriSpeech (MLS) benchmark."
+        "the 8-language Multilingual LibriSpeech (MLS) benchmark. Instead of "
+        "the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM "
+        "speaker encoder, enrollment 256-D d-vectors are extracted using a "
+        "self-contained open-set regularized LDA+PCA speaker subspace "
+        "extractor (`speaker_subspace.npz`) trained from scratch on 98 MLS "
+        "training speakers (`0.9521` ROC-AUC on 35 unseen test speakers)."
     )
     with gr.Row():
       with gr.Column(scale=1):

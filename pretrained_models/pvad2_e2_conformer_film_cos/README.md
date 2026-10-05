@@ -45,8 +45,17 @@ metrics:
 - `model_config.json`: Serialized `personal_vad.ModelConfig` spec.
 - `model_fp32.tflite`: Unquantized 32-bit float TFLite flatbuffer.
 - `model_quantized.tflite`: 8-bit dynamic-range quantized TFLite flatbuffer for on-device deployment.
-- `speaker_subspace.npz`: Open-set LDA+WCCN speaker subspace projection matrix (`256`-d d-vectors).
+- `speaker_subspace.npz`: Open-set regularized LDA+PCA speaker subspace projection matrix (`256`-d L2-normalized d-vectors, trained from scratch on the 98 MLS training speakers).
 - `evaluation_metrics.json`: Full test-set evaluation metrics on 35 unseen multilingual speakers (with 95% bootstrap CIs).
+
+## Speaker Embedding (`d-vector`) Extractor Design & Transparency
+
+In the original Personal VAD 1.0 and 2.0 papers, speaker embeddings (`e_target`) and frame-level cosine scores (`s_t`) were extracted using Google's internal 3-layer LSTM speaker verification network (`4.88M` parameters) trained with Generalized End-to-End (`GE2E`) loss on proprietary vendor-collected corpora.
+
+To keep this open-source reproduction completely self-contained in pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX dependencies, **we trained our own lightweight, non-neural open-set 256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) from scratch on the 98 training speakers (`922` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset**:
+1. **360-D Multi-Resolution Acoustic Summary**: Over voiced speech frames (or a 31-frame / ~310 ms causal sliding window for frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D log-Mel `[mean, std]` (160-D).
+2. **256-D Regularized LDA + PCA Projection**: Applies Z-score standardization, projects onto a 256-D discriminative subspace fitted via regularized Linear Discriminant Analysis (LDA) and orthogonal PCA completion on the 98 training speakers, and L2-normalizes the resulting vector (`||e||_2 = 1`).
+3. **Unseen-Speaker Verification Accuracy**: On the **35 held-out unseen test speakers** (`315` utterances across 8 languages), `speaker_subspace.npz` achieves an open-set speaker verification **ROC-AUC of `0.9521`** (mean positive cosine similarity `0.7130` vs. negative `-0.0082`). Users may also pass any external 256-D L2-normalized neural d-vector directly to `PersonalVadModel` or `PersonalVadInferenceEngine`.
 
 ## Quickstart Usage
 
@@ -90,7 +99,7 @@ print("TFLite output shape:", probs.shape)
 
 ## Open-Source Multilingual LibriSpeech Benchmark Results
 
-All models were trained on 52 training speakers across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`) and evaluated on **35 held-out unseen test speakers** (zero speaker overlap).
+All models were trained on 98 training speakers (`922` utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`) and evaluated on **35 held-out unseen test speakers** (`315` utterances, zero speaker overlap).
 
 ### Personal VAD 1.0 Models (Concatenated Multi-Speaker Test Set)
 

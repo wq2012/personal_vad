@@ -209,7 +209,7 @@
 
     <div class="disclaimer">
       <strong>This is not an officially supported Google product.</strong>
-      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public Multilingual LibriSpeech (MLS) 8-language audio (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`).
+      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public 8-language Multilingual LibriSpeech (MLS) audio (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`). Instead of the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted using our self-contained open-set regularized LDA+PCA speaker subspace extractor (`speaker_subspace.npz`, trained from scratch on 98 MLS training speakers; `0.9521` ROC-AUC on 35 unseen test speakers).
     </div>
 
     <div class="grid">

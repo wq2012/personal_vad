@@ -28,13 +28,15 @@ Interspeech 2022 papers:
 > open-source reproduction of the published papers above. It does **not** use
 > the original internal codebase used in the papers, which relied on Google's
 > proprietary software infrastructure (including internal acoustic frontends,
-> proprietary room simulators, 8-language vendor-collected d-vector encoders,
+> proprietary room simulators, a proprietary 4.88M-parameter 3-layer GE2E LSTM
+> speaker verification d-vector model trained on vendor-collected datasets,
 > and internal streaming on-device ASR evaluation pipelines). Instead, all
-> modules, training scripts, evaluation suites, and pretrained checkpoints in
-> this repository are newly implemented from scratch using open-source
-> [`lingvo`](https://github.com/tensorflow/lingvo) and `tensorflow`, and trained
-> on the open-source 8-language **Multilingual LibriSpeech (MLS)** corpus (`de`,
-> `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`).
+> modules, training scripts, evaluation suites, speaker embedding extractors,
+> and pretrained checkpoints in this repository are newly implemented from
+> scratch using open-source [`lingvo`](https://github.com/tensorflow/lingvo),
+> `tensorflow`, and `numpy`/`scipy`, and trained on the open-source 8-language
+> **Multilingual LibriSpeech (MLS)** corpus (`de`, `en`, `es`, `fr`, `it`,
+> `nl`, `pl`, `pt`).
 
 **Personal VAD** detects frame-level voice activity of a specific **target
 speaker** in multi-speaker and noisy acoustic environments, serving as a
@@ -113,6 +115,48 @@ Unlike standard VAD, which classifies each audio frame into two classes
   zero vector `0` and maps `ntss` labels to `tss`, allowing a single on-device
   model to operate as both a speaker-conditioned Personal VAD and an
   enrollment-less Standard VAD.
+
+### 3. Speaker Embedding (`d-vector`) Extractor Design & Transparency (`speaker_subspace.npz`)
+
+In the original Personal VAD 1.0 and 2.0 papers, target speaker embeddings
+(`e_target`) and frame-level verification scores (`s_t`) were extracted using
+Google's internal 3-layer LSTM speaker verification model (`4.88M` parameters)
+trained with Generalized End-to-End (`GE2E`) loss ([Wan et al., ICASSP 2018](https://arxiv.org/pdf/1710.10467))
+on proprietary vendor-collected datasets across 8 languages.
+
+Because that internal speaker verification model and its training corpora are
+proprietary—and to keep this open-source package 100% self-contained in pure
+TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX runtime
+dependencies—**we trained our own lightweight, open-set 256-D speaker embedding
+extractor (`OpenSetSpeakerSubspace`, serialized as `speaker_subspace.npz`, ~370 KB)
+from scratch on the 98 training speakers of the 8-language Multilingual
+LibriSpeech (MLS) dataset**:
+
+1. **Multi-Resolution Voiced Acoustic Summary (360-D)**:
+   - Over voiced speech frames (or over a 31-frame / ~310 ms causal sliding
+     window when computing frame-level embeddings `e_t` and cosine scores `s_t`
+     for Personal VAD 1.0 `SC`, `ST`, and `SET`), the extractor computes a
+     360-dimensional acoustic statistic vector combining 40-D log-Mel
+     `[mean, std, 10th-percentile, 90th-percentile, delta_std]` (200-D) with
+     high-resolution 80-D log-Mel `[mean, std]` (160-D).
+2. **Regularized LDA + Orthogonal PCA Subspace Projection (256-D)**:
+   - Fitted strictly on the **98 MLS training speakers** (`922` utterances
+     across `de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`), it standardizes
+     the 360-D summary vector, solves the regularized **Linear Discriminant
+     Analysis (LDA)** generalized eigenvalue problem between inter-speaker and
+     intra-speaker scatter matrices, completes the orthogonal basis to 256
+     dimensions via PCA on the residual subspace, and L2-normalizes the
+     resulting 256-D speaker embedding (`||e||_2 = 1`).
+3. **Open-Set Unseen-Speaker Verification Accuracy**:
+   - Evaluated on the **35 held-out unseen test speakers** (`315` utterances,
+     zero speaker overlap with training), `speaker_subspace.npz` achieves an
+     open-set speaker verification **ROC-AUC of `0.9521`** (mean same-speaker
+     cosine similarity **`0.7130`** vs. different-speaker **`-0.0082`**).
+4. **Bring-Your-Own Neural Speaker Encoder**:
+   - Both `PersonalVadModel` and `PersonalVadInferenceEngine` accept any
+     external 256-D L2-normalized speaker embedding vector directly (e.g., from
+     [`FlaxSpeaker`](https://github.com/wq2012/FlaxSpeaker) GE2E/Conformer/ECAPA-TDNN
+     models) if you wish to train or run inference with a neural speaker encoder.
 
 ---
 
@@ -245,9 +289,14 @@ All 13 open-source pretrained models were trained and evaluated on the
 open-source 8-language **Multilingual LibriSpeech (MLS)** dataset (`de`, `en`,
 `es`, `fr`, `it`, `nl`, `pl`, `pt`; `1,323` utterances across `142` speakers in
 disjoint speaker splits: `98` train speakers / `315` unseen test utterances
-across `35` unseen test speakers). The open-set 256-D speaker verification
-d-vector encoder achieves an unseen-speaker verification **ROC-AUC of `0.9521`**
-(mean positive cosine similarity `0.7130` vs. negative `-0.0082`).
+across `35` unseen test speakers). As detailed in
+[Section 3 above](#3-speaker-embedding-d-vector-extractor-design--transparency-speaker_subspacenpz),
+rather than using the original papers' proprietary 4.88M-parameter 3-layer GE2E
+LSTM speaker encoder, all models below use our self-contained open-set 256-D
+regularized LDA+PCA speaker subspace extractor (`speaker_subspace.npz`) trained
+from scratch on the 98 MLS training speakers, which achieves an unseen-speaker
+verification **ROC-AUC of `0.9521`** (mean positive cosine similarity `0.7130`
+vs. negative `-0.0082`).
 
 Every model repository on Hugging Face Hub includes:
 - `model.safetensors`: SafeTensors FP32 checkpoint
@@ -255,7 +304,7 @@ Every model repository on Hugging Face Hub includes:
 - `model_fp32.tflite`: FP32 TensorFlow Lite FlatBuffer
 - `model_quantized.tflite`: 8-bit dynamic-range quantized TensorFlow Lite model
 - `model_config.json` & `speaker_subspace.npz`: Full model configuration and
-  256-D speaker d-vector projection matrix
+  trained 256-D open-set LDA+PCA speaker d-vector projection matrix
 - `evaluation_metrics.json`: Full evaluation metrics with 95% non-parametric
   bootstrap confidence intervals
 
