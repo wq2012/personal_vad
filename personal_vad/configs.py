@@ -235,7 +235,7 @@ class ModelConfig:
   prenet_dim: int = 64
   prenet_output_dim: int = 256
   film_has_bias: bool = True
-  film_apply_residual: bool = True
+  film_apply_residual: bool = False
 
   @classmethod
   def pvad_v1(
@@ -262,7 +262,9 @@ class ModelConfig:
 
   @classmethod
   def pvad_v2_conformer(
-      cls, conditioning_mode: ConditioningMode = ConditioningMode.FILM_DVECTOR
+      cls,
+      conditioning_mode: ConditioningMode = ConditioningMode.FILM_DVECTOR,
+      film_apply_residual: bool = False,
   ) -> "ModelConfig":
     """Returns Personal VAD 2.0 streaming Conformer configuration."""
     num_classes = 2 if conditioning_mode == ConditioningMode.SC else 3
@@ -283,7 +285,7 @@ class ModelConfig:
         prenet_dim=64,
         prenet_output_dim=256,
         film_has_bias=True,
-        film_apply_residual=True,
+        film_apply_residual=film_apply_residual,
     )
 
   @classmethod

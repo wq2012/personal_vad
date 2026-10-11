@@ -2,12 +2,13 @@
 
 Supports three data sources:
 1. Multilingual LibriSpeech / LibriSpeech audio manifests (`--mls_manifest`):
-   loads 16 kHz `.flac`/`.wav` utterances, extracts 40-dim (`v1`) or 512-dim
-   (`v2` 4x3 stacked + subsampled) log-Mel filterbank energies, computes
-   energy-calibrated frame-level VAD labels (`speech=0`, `silence=1`), fits or
-   applies a regularized LDA/WCCN open-set speaker embedding subspace (rank 8
-   tiled to 256-dim d-vectors), computes frame-level cosine similarity scores,
-   and concatenates random groups of utterances across speakers.
+   loads 16 kHz `.flac`/`.wav` utterances, computes clean reference frame-level
+   VAD alignments (`speech=0`, `silence=1`), optionally applies Multistyle
+   Training (MTR) reverberation and additive background noise, extracts strictly
+   causal 40-dim (`v1`, 10ms frame step) or 512-dim (`v2`, 4x128 stacked + 3x
+   subsampled, 30ms frame step) log-Mel filterbank energies, fits or applies the
+   360-dim -> 256-dim regularized LDA/WCCN + PCA open-set speaker subspace, and
+   concatenates multi-speaker utterance groups (`n ~ Uniform(1, 3)`).
 2. Pre-extracted single-speaker `.npz` archives (`--input_npz`).
 3. Synthetic multi-speaker utterances (`--generate_synthetic`) for unit tests.
 """
@@ -29,6 +30,7 @@ sys.path.insert(
 from personal_vad import configs  # noqa: E402
 from personal_vad import dataset  # noqa: E402
 from personal_vad import frontend as frontend_lib  # noqa: E402
+from personal_vad import inference as inference_lib  # noqa: E402
 
 
 def generate_synthetic_single_speaker_utterances(
@@ -40,20 +42,7 @@ def generate_synthetic_single_speaker_utterances(
     speaker_embedding_dim: int = 256,
     seed: int = 42,
 ) -> list[dataset.UtteranceData]:
-  """Generates synthetic single-speaker utterances with distinct speaker IDs.
-
-  Args:
-    num_utterances: Total number of single-speaker utterances to generate.
-    num_speakers: Number of distinct speakers in the pool.
-    min_frames: Minimum number of frames per single utterance.
-    max_frames: Maximum number of frames per single utterance.
-    feature_dim: Acoustic feature dimension (40 for PVAD 1.0, 512 for PVAD 2.0).
-    speaker_embedding_dim: Speaker d-vector dimension (256).
-    seed: Random seed for reproducibility.
-
-  Returns:
-    List of single-speaker `UtteranceData` instances.
-  """
+  """Generates synthetic single-speaker utterances with distinct speaker IDs."""
   rng = np.random.default_rng(seed)
   speaker_embeddings = {}
   speaker_signatures = {}
@@ -98,23 +87,33 @@ def generate_synthetic_single_speaker_utterances(
 
 
 def compute_frame_vad_labels(mel_40: np.ndarray) -> np.ndarray:
-  """Computes frame-level binary VAD labels (`speech=0`, `silence=1`).
+  """Computes reference frame-level binary VAD labels (`speech=0`, `silence=1`).
 
-  Uses adaptive dynamic-range energy thresholding with median smoothing to
-  capture natural intra-utterance pauses and leading/trailing silence margins.
+  Combines vocal-band log-Mel energy (`mel_40[:, 2:34]`) and spectral peak
+  prominence with morphological hang-over smoothing on the clean reference
+  audio before any MTR noise/reverberation is mixed.
 
   Args:
-    mel_40: Log-Mel filterbank energies of shape `[num_frames, 40]`.
+    mel_40: Clean 40-dim log-Mel filterbank energies of shape
+      `[num_frames, 40]`.
 
   Returns:
     Integer array of shape `[num_frames]` with `0` for speech and `1` for
     silence.
   """
-  frame_energy = np.mean(mel_40, axis=-1)
-  p10 = float(np.percentile(frame_energy, 10))
-  p90 = float(np.percentile(frame_energy, 90))
-  threshold = p10 + 0.28 * (p90 - p10)
-  is_speech = frame_energy >= threshold
+  if mel_40.shape[0] == 0:
+    return np.zeros((0,), dtype=np.int32)
+  vocal_energy = np.mean(mel_40[:, 2:34], axis=-1)
+  spectral_var = np.std(mel_40[:, 2:34], axis=-1)
+  score = vocal_energy + 0.35 * spectral_var
+  p10 = float(np.percentile(score, 10))
+  p90 = float(np.percentile(score, 90))
+  threshold = p10 + 0.26 * (p90 - p10)
+  is_speech = score >= threshold
+  # Hang-over closing + median smoothing to bridge short plosive closures
+  is_speech = ndimage.binary_closing(is_speech, structure=np.ones((5,))).astype(
+      bool
+  )
   is_speech = ndimage.median_filter(is_speech.astype(np.int32), size=5).astype(
       bool
   )
@@ -125,96 +124,86 @@ def compute_frame_vad_labels(mel_40: np.ndarray) -> np.ndarray:
   ).astype(np.int32)
 
 
-def extract_sliding_speaker_stats(
-    mel_40: np.ndarray, window: int = 35
-) -> np.ndarray:
-  """Computes sliding-window spectral mean, std, and first-order delta stats.
-
-  Args:
-    mel_40: Log-Mel filterbank energies of shape `[T, 40]`.
-    window: Causal/local sliding window size in frames.
-
-  Returns:
-    Float32 array of shape `[T, 120]`.
-  """
-  delta = np.zeros_like(mel_40)
-  if mel_40.shape[0] > 1:
-    delta[1:] = mel_40[1:] - mel_40[:-1]
-  mean_f = ndimage.uniform_filter1d(
-      mel_40, size=window, axis=0, mode="nearest"
-  )
-  sq_f = ndimage.uniform_filter1d(
-      mel_40**2, size=window, axis=0, mode="nearest"
-  )
-  std_f = np.sqrt(np.maximum(sq_f - mean_f**2, 1e-4))
-  d_sq = ndimage.uniform_filter1d(
-      delta**2, size=window, axis=0, mode="nearest"
-  )
-  d_std = np.sqrt(np.maximum(d_sq, 1e-4))
-  return np.concatenate([mean_f, std_f, d_std], axis=-1).astype(np.float32)
-
-
 def fit_lda_wccn_subspace(
     records_with_mel: Sequence[dict[str, Any]],
-    subspace_rank: int = 8,
     output_dim: int = 256,
 ) -> dict[str, np.ndarray]:
-  """Fits a regularized LDA + WCCN open-set speaker subspace on training audio.
+  """Fits a 360-D -> 256-D regularized LDA + WCCN + PCA speaker subspace.
 
-  Projects 120-dim sliding-window acoustic statistics onto the top
-  `subspace_rank` generalized eigenvectors of $(S_B, S_W + \\lambda I)$,
-  followed by within-class covariance whitening (WCCN) and orthogonal tiling to
-  `output_dim` (256-dim d-vectors).
-
-  Args:
-    records_with_mel: Sequence of dicts containing `'speaker_id'`, `'mel_40'`,
-      and `'vad_40'` from the training split only.
-    subspace_rank: Principal discriminant rank $K$ (default 8).
-    output_dim: Target speaker embedding dimension (default 256).
-
-  Returns:
-    Dictionary containing `'mean'`, `'std'`, `'proj_k'`, and `'subspace_rank'`.
+  Uses strictly causal 360-dim multi-resolution acoustic statistics from the
+  training split only:
+  1. Computes training-set acoustic normalization (`mel_mean_v1`, `mel_std_v1`,
+     `mel_mean_v2`, `mel_std_v2`) and fixed causal voicing threshold
+     `energy_threshold`.
+  2. Fits regularized Fisher LDA (`min(num_speakers - 1, 256)` directions)
+     whitened via Within-Class Covariance Normalization (WCCN) and completed to
+     full `output_dim = 256` with orthogonal PCA eigenvectors of the residual
+     covariance (`proj_lda` of shape `(360, 256)`).
+  3. Fits linear ridge-regression projections `w_x_v1` (`40 x 32`), `w_x_v2`
+     (`512 x 32`), and `w_e_32` (`256 x 32`) on training frames for optional
+     neural weight initialization.
   """
+  all_mel_v1 = np.concatenate(
+      [r["mel_40_full"] for r in records_with_mel], axis=0
+  )
+  mel_mean_v1 = np.mean(all_mel_v1, axis=0).astype(np.float32)
+  mel_std_v1 = (np.std(all_mel_v1, axis=0) + 1e-5).astype(np.float32)
+
+  all_mel_v2 = np.concatenate(
+      [r["feat_v2_full"] for r in records_with_mel], axis=0
+  )
+  mel_mean_v2 = np.mean(all_mel_v2, axis=0).astype(np.float32)
+  mel_std_v2 = (np.std(all_mel_v2, axis=0) + 1e-5).astype(np.float32)
+
+  vocal_energies = np.mean(all_mel_v1[:, 2:34], axis=-1)
+  energy_threshold = float(np.percentile(vocal_energies, 25))
+
   spk_vecs: dict[str, list[np.ndarray]] = {}
   all_vecs: list[np.ndarray] = []
   for r in records_with_mel:
-    mel_src = r.get("mel_40_full", r["mel_40"])
-    vad_src = r.get("vad_40_full", r["vad_40"])
-    raw = extract_sliding_speaker_stats(mel_src, window=45)
-    speech_idx = np.where(vad_src == 0)[0]
-    if len(speech_idx) < 5:
-      speech_idx = np.arange(len(raw))
-    pooled = np.mean(raw[speech_idx], axis=0)
-    spk_vecs.setdefault(r["speaker_id"], []).append(pooled)
-    for k in range(0, len(speech_idx), 15):
-      chunk = speech_idx[k:k + 30]
-      if len(chunk) >= 5:
-        vec = np.mean(raw[chunk], axis=0)
-        spk_vecs[r["speaker_id"]].append(vec)
-        all_vecs.append(vec)
+    mel_40 = r["mel_40_full"]
+    mel_80 = r["mel_80_full"]
+    vad_40 = r["vad_40_full"]
+    utt_360 = inference_lib.extract_360d_utterance_stats(
+        mel_40=mel_40,
+        mel_80=mel_80,
+        mel_mean_v1=mel_mean_v1,
+        energy_threshold=energy_threshold,
+    )
+    spk_vecs.setdefault(r["speaker_id"], []).append(utt_360)
+    all_vecs.append(utt_360)
 
-  x_all = np.stack(all_vecs, axis=0)
+    causal_360 = inference_lib.extract_causal_360d_frame_stats(
+        mel_40=mel_40,
+        mel_80=mel_80,
+        window=35,
+        mel_mean_v1=mel_mean_v1,
+        energy_threshold=energy_threshold,
+    )
+    speech_idx = np.where(vad_40 == 0)[0]
+    for k in range(10, len(speech_idx), 20):
+      frame_idx = speech_idx[k]
+      vec = causal_360[frame_idx]
+      spk_vecs[r["speaker_id"]].append(vec)
+      all_vecs.append(vec)
+
+  x_all = np.stack(all_vecs, axis=0).astype(np.float64)
   feat_mean = np.mean(x_all, axis=0)
   feat_std = np.std(x_all, axis=0) + 1e-5
+  x_norm_all = (x_all - feat_mean[None, :]) / feat_std[None, :]
 
-  dim = x_all.shape[1]
+  dim = x_all.shape[1]  # 360
   sw = np.zeros((dim, dim), dtype=np.float64)
   sb = np.zeros((dim, dim), dtype=np.float64)
-  global_mean = np.zeros((dim,), dtype=np.float64)
-  total_n = 0
+  global_mean = np.mean(x_norm_all, axis=0)
+  total_n = len(x_norm_all)
+
   spk_means: dict[str, np.ndarray] = {}
   spk_counts: dict[str, int] = {}
-
   for spk, vecs in spk_vecs.items():
-    v_norm = (np.stack(vecs, axis=0) - feat_mean) / feat_std
+    v_norm = (np.stack(vecs, axis=0).astype(np.float64) - feat_mean) / feat_std
     spk_means[spk] = np.mean(v_norm, axis=0)
     spk_counts[spk] = len(v_norm)
-    global_mean += np.sum(v_norm, axis=0)
-    total_n += len(v_norm)
-  global_mean /= max(total_n, 1)
-
-  for spk, vecs in spk_vecs.items():
-    v_norm = (np.stack(vecs, axis=0) - feat_mean) / feat_std
     diff = v_norm - spk_means[spk][None, :]
     sw += diff.T @ diff
     m_diff = (spk_means[spk] - global_mean)[:, None]
@@ -222,140 +211,193 @@ def fit_lda_wccn_subspace(
 
   sw /= max(total_n, 1)
   sb /= max(total_n, 1)
-  sw_reg = sw + 0.10 * np.eye(dim)
+  sw_reg = sw + 0.08 * np.eye(dim, dtype=np.float64)
 
   eigvals, eigvecs = linalg.eigh(sb, sw_reg)
-  idx = np.argsort(eigvals)[::-1]
-  eigvecs = eigvecs[:, idx]
-  w_lda = eigvecs[:, :subspace_rank].astype(np.float32)
+  order = np.argsort(eigvals)[::-1]
+  eigvals = np.maximum(eigvals[order], 0.0)
+  eigvecs = eigvecs[:, order]
 
-  wccn = np.zeros((subspace_rank, subspace_rank), dtype=np.float64)
+  lda_rank = min(max(len(spk_vecs) - 1, 1), output_dim)
+  v_lda = eigvecs[:, :lda_rank]
+
+  # WCCN whitening within the LDA subspace paired with Fisher eigenvalue scaling
+  wccn = np.zeros((lda_rank, lda_rank), dtype=np.float64)
+  for spk, vecs in spk_vecs.items():
+    v_norm = (np.stack(vecs, axis=0).astype(np.float64) - feat_mean) / feat_std
+    z = v_norm @ v_lda
+    d = z - np.mean(z, axis=0, keepdims=True)
+    wccn += (d.T @ d) / max(len(z), 1)
+  wccn /= max(len(spk_vecs), 1)
+  wccn_reg = wccn + 0.10 * np.eye(lda_rank, dtype=np.float64)
+  b_wccn = np.linalg.cholesky(np.linalg.inv(wccn_reg))
+  fisher_scale = np.power(eigvals[:lda_rank] / (eigvals[0] + 1e-8) + 0.02, 0.45)
+  proj_disc = v_lda @ b_wccn @ np.diag(fisher_scale)
+
+  # Orthonormalize v_lda basis to find orthogonal PCA completion to 256-D
+  if lda_rank < output_dim:
+    rem_dim = output_dim - lda_rank
+    q_lda, _ = np.linalg.qr(v_lda)
+    proj_perp = np.eye(dim, dtype=np.float64) - q_lda @ q_lda.T
+    cov_total = (x_norm_all.T @ x_norm_all) / max(total_n, 1)
+    cov_res = proj_perp @ cov_total @ proj_perp
+    pca_vals, pca_vecs = linalg.eigh(cov_res)
+    pca_order = np.argsort(pca_vals)[::-1]
+    v_pca = pca_vecs[:, pca_order[:rem_dim]] * 0.08
+    proj_lda = np.concatenate([proj_disc, v_pca], axis=1).astype(np.float32)
+  else:
+    proj_lda = proj_disc[:, :output_dim].astype(np.float32)
+
+  proj_bias = np.zeros((output_dim,), dtype=np.float32)
+  proj_bias[-1] = 0.45
+  proj_lda[:, -1] = 0.0
+
+  # Fit linear ridge-regression acoustic-to-speaker-subspace warm-start maps
+  # on the training set (mapping pure normalized log-Mel x_t to top 32 speaker
+  # coordinates).
+  coord_dim = 32
+  spk_centroid_list = []
+  x_v1_list = []
+  x_v2_list = []
+  y_v1_list = []
+  y_v2_list = []
+
   for spk, vecs in spk_vecs.items():
     v_norm = (np.stack(vecs, axis=0) - feat_mean) / feat_std
-    proj = (v_norm @ w_lda) / (
-        np.linalg.norm(v_norm @ w_lda, axis=-1, keepdims=True) + 1e-8
+    e_256 = dataset.l2_normalize_numpy(
+        np.mean(v_norm @ proj_lda, axis=0) + proj_bias
     )
-    pm = np.mean(proj, axis=0, keepdims=True)
-    d = proj - pm
-    wccn += (d.T @ d) / max(len(proj), 1)
-  wccn /= max(len(spk_vecs), 1)
-  wccn_reg = wccn + 0.08 * np.eye(subspace_rank)
-  b_wccn = np.linalg.cholesky(np.linalg.inv(wccn_reg)).astype(np.float32)
+    spk_centroid_list.append(e_256)
 
-  proj_k = (w_lda @ b_wccn).astype(np.float32)
-  all_mel_v1 = np.concatenate([r["mel_40"] for r in records_with_mel], axis=0)
-  mel_mean_v1 = np.mean(all_mel_v1, axis=0).astype(np.float32)
-  mel_std_v1 = (np.std(all_mel_v1, axis=0) + 1e-5).astype(np.float32)
-  if "feat_v2" in records_with_mel[0]:
-    all_mel_v2 = np.concatenate(
-        [r["feat_v2"] for r in records_with_mel], axis=0
-    )
-    mel_mean_v2 = np.mean(all_mel_v2, axis=0).astype(np.float32)
-    mel_std_v2 = (np.std(all_mel_v2, axis=0) + 1e-5).astype(np.float32)
-  else:
-    mel_mean_v2 = np.zeros((512,), dtype=np.float32)
-    mel_std_v2 = np.ones((512,), dtype=np.float32)
+  spk_mat = np.stack(spk_centroid_list, axis=0).copy()
+  spk_mat[:, -1] = 0.0
+  _, _, vt_e = np.linalg.svd(spk_mat, full_matrices=False)
+  actual_k = min(coord_dim, vt_e.shape[0])
+  w_e_32 = np.zeros((output_dim, coord_dim), dtype=np.float32)
+  w_e_32[:, :actual_k] = vt_e[:actual_k].T.astype(np.float32)
+  w_e_32[-1, :] = 0.0
+
+  spk_to_emb256: dict[str, np.ndarray] = {}
+  for spk, e_256 in zip(spk_vecs.keys(), spk_centroid_list):
+    spk_to_emb256[spk] = e_256
+
+  for r in records_with_mel:
+    spk = r["speaker_id"]
+    target_z = (spk_to_emb256[spk] @ w_e_32).astype(np.float32)  # [32]
+    vad1 = r["vad_40_full"]
+    sp_idx1 = np.where(vad1 == 0)[0]
+    if len(sp_idx1) > 0:
+      norm_m1 = (r["mel_40_full"][sp_idx1] - mel_mean_v1[None, :]) / mel_std_v1[
+          None, :
+      ]
+      x_v1_list.append(norm_m1)
+      y_v1_list.append(np.tile(target_z[None, :], (len(sp_idx1), 1)))
+    vad2 = r["vad_v2_full"]
+    sp_idx2 = np.where(vad2 == 0)[0]
+    if len(sp_idx2) > 0:
+      norm_m2 = (
+          r["feat_v2_full"][sp_idx2] - mel_mean_v2[None, :]
+      ) / mel_std_v2[None, :]
+      x_v2_list.append(norm_m2)
+      y_v2_list.append(np.tile(target_z[None, :], (len(sp_idx2), 1)))
+
+  x1_cat = np.concatenate(x_v1_list, axis=0).astype(np.float64)
+  y1_cat = np.concatenate(y_v1_list, axis=0).astype(np.float64)
+  w_x_v1 = linalg.solve(
+      x1_cat.T @ x1_cat + 50.0 * np.eye(40), x1_cat.T @ y1_cat, assume_a="pos"
+  ).astype(np.float32)
+
+  x2_cat = np.concatenate(x_v2_list, axis=0).astype(np.float64)
+  y2_cat = np.concatenate(y_v2_list, axis=0).astype(np.float64)
+  w_x_v2 = linalg.solve(
+      x2_cat.T @ x2_cat + 250.0 * np.eye(512),
+      x2_cat.T @ y2_cat,
+      assume_a="pos",
+  ).astype(np.float32)
 
   return {
-      "mean": feat_mean.astype(np.float32),
-      "std": feat_std.astype(np.float32),
-      "proj_k": proj_k,
-      "subspace_rank": np.array(subspace_rank, dtype=np.int32),
+      "feat_mean": feat_mean.astype(np.float32),
+      "feat_std": feat_std.astype(np.float32),
+      "proj_lda": proj_lda,
+      "proj_bias": proj_bias,
+      "subspace_rank": np.array(lda_rank, dtype=np.int32),
       "output_dim": np.array(output_dim, dtype=np.int32),
+      "energy_threshold": np.array(energy_threshold, dtype=np.float32),
       "mel_mean_v1": mel_mean_v1,
       "mel_std_v1": mel_std_v1,
       "mel_mean_v2": mel_mean_v2,
       "mel_std_v2": mel_std_v2,
+      "w_x_v1": w_x_v1,
+      "w_x_v2": w_x_v2,
+      "w_e_32": w_e_32,
   }
 
 
-def project_speaker_frames(
-    mel_40: np.ndarray,
-    subspace: dict[str, np.ndarray],
-    window: int = 35,
-) -> np.ndarray:
-  """Projects `[T, 40]` log-Mel frames into `[T, 256]` normalized d-vectors."""
-  raw = extract_sliding_speaker_stats(mel_40, window=window)
-  x = (raw - subspace["mean"][None, :]) / subspace["std"][None, :]
-  z_k = x @ subspace["proj_k"]
-  z_k = z_k / (np.linalg.norm(z_k, axis=-1, keepdims=True) + 1e-8)
-  repeats = int(subspace["output_dim"]) // z_k.shape[1]
-  tiled = np.tile(z_k, (1, repeats)) / np.sqrt(float(repeats))
-  return tiled.astype(np.float32)
-
-
-def extract_subspace_conditioned_features(
+def extract_pure_acoustic_features(
     mel_40_full: np.ndarray,
-    mel_40: np.ndarray,
-    feat_v2: np.ndarray,
-    idx_v2: np.ndarray,
+    mel_80_full: np.ndarray,
+    feat_v2_full: np.ndarray,
     subspace: dict[str, np.ndarray],
     frontend_version: str = "v1",
 ) -> tuple[np.ndarray, np.ndarray]:
-  """Extracts normalized acoustic features and frame d-vectors using `subspace`.
+  """Extracts pure normalized log-Mel features and causal frame d-vectors.
 
-  Computes causal/sliding-window frame speaker embeddings purely from
-  `mel_40_full` and blends the principal $K$-dim speaker subspace with a
-  continuous acoustic voicing gate into the feature blocks while keeping the
-  trailing spectral channels unrotated for voice activity detection.
+  - `v1`: 40-dim log-Mel at exact 10ms frame rate (`[T_10ms, 40]`).
+  - `v2`: 512-dim stacked log-Mel at exact 30ms frame rate (`[T_30ms, 512]`).
+  Zero speaker information is injected into `features`.
   """
-  f_embs_local = project_speaker_frames(mel_40_full, subspace, window=35)[
-      idx_v2
-  ]
-  f_embs_wide = project_speaker_frames(mel_40_full, subspace, window=95)[idx_v2]
-  frame_embs = dataset.l2_normalize_numpy(
-      0.65 * f_embs_wide + 0.35 * f_embs_local
+  frame_embs_10ms = inference_lib.project_speaker_frames(
+      mel_40=mel_40_full,
+      mel_80=mel_80_full,
+      subspace=subspace,
+      window=14,
   )
-
-  subspace_rank = int(subspace["subspace_rank"])
-  output_dim = int(subspace["output_dim"])
-  repeats = output_dim // subspace_rank
-  f_k = frame_embs[:, :subspace_rank] * np.sqrt(float(repeats))
-
-  raw_e = np.mean(mel_40[:, 2:32], axis=-1)
-  e_smooth = ndimage.uniform_filter1d(raw_e, size=5, mode="nearest")
-  e_th = (
-      np.percentile(e_smooth, 25) * 0.45
-      + np.percentile(e_smooth, 85) * 0.55
-      - 1.0
-  )
-  soft_voice = (
-      1.0 / (1.0 + np.exp(-2.0 * (e_smooth - e_th)))
-  )[:, None].astype(np.float32)
-
   if frontend_version == "v1":
-    mu = subspace.get("mel_mean_v1", np.zeros((40,), dtype=np.float32))
-    sig = subspace.get("mel_std_v1", np.ones((40,), dtype=np.float32))
-    norm_mel = (mel_40 - mu[None, :]) / sig[None, :]
-    features = norm_mel.copy()
-    features[:, :32] = (
-        0.35 * norm_mel[:, :32] + 2.2 * soft_voice * np.tile(f_k, (1, 4))
-    )
-  else:
-    mu = subspace.get("mel_mean_v2", np.zeros((512,), dtype=np.float32))
-    sig = subspace.get("mel_std_v2", np.ones((512,), dtype=np.float32))
-    norm_feat = (feat_v2 - mu[None, :]) / sig[None, :]
-    features = norm_feat.copy()
-    features[:, :480] = (
-        0.25 * norm_feat[:, :480] + 2.4 * soft_voice * np.tile(f_k, (1, 60))
-    )
-  return features.astype(np.float32), frame_embs.astype(np.float32)
+    mu = subspace["mel_mean_v1"]
+    sig = np.maximum(subspace["mel_std_v1"], 1e-5)
+    features = (mel_40_full - mu[None, :]) / sig[None, :]
+    return features.astype(np.float32), frame_embs_10ms.astype(np.float32)
+
+  mu = subspace["mel_mean_v2"]
+  sig = np.maximum(subspace["mel_std_v2"], 1e-5)
+  features = (feat_v2_full - mu[None, :]) / sig[None, :]
+  num_v2 = features.shape[0]
+  idx_30ms = np.minimum(np.arange(num_v2) * 3, frame_embs_10ms.shape[0] - 1)
+  frame_embs_30ms = frame_embs_10ms[idx_30ms]
+  return features.astype(np.float32), frame_embs_30ms.astype(np.float32)
 
 
 def load_mls_manifest_records(
     manifest_path: str,
-    max_duration_sec: float = 1.8,
-    silence_pad_sec: float = 0.20,
+    max_duration_sec: float = 1.45,
+    pause_margin_sec: float = 0.12,
+    apply_mtr: bool = False,
+    mtr_seed: int = 1234,
 ) -> list[dict[str, Any]]:
-  """Loads audio files listed in an MLS JSON manifest and extracts features."""
+  """Loads audio files in an MLS JSON manifest and extracts causal features."""
   with open(manifest_path, "r", encoding="utf-8") as f:
     items = json.load(f)
 
   fe_v1 = frontend_lib.LogMelFrontend(configs.FrontendConfig.pvad_v1())
+  fe_80 = frontend_lib.LogMelFrontend(
+      configs.FrontendConfig(
+          sample_rate=16000,
+          frame_size_ms=25.0,
+          frame_step_ms=10.0,
+          num_mel_bins=80,
+          lower_edge_hertz=80.0,
+          upper_edge_hertz=7600.0,
+          stack_left_context=0,
+          stack_right_context=0,
+          frame_stride=1,
+      )
+  )
   fe_v2 = frontend_lib.LogMelFrontend(configs.FrontendConfig.pvad_v2())
-  rng = np.random.default_rng(1234)
+  rng = np.random.default_rng(mtr_seed)
 
-  records: list[dict[str, Any]] = []
+  clean_waves: list[np.ndarray] = []
+  proc_waves: list[np.ndarray] = []
+  wave_lengths: list[int] = []
   for item in items:
     audio, sr = sf.read(item["audio_path"], dtype="float32")
     if audio.ndim > 1:
@@ -366,37 +408,95 @@ def load_mls_manifest_records(
     max_samples = int(max_duration_sec * sr)
     if len(audio) > max_samples:
       audio = audio[:max_samples]
-    peak = float(np.max(np.abs(audio)))
-    if peak > 1e-4:
-      audio = audio / peak * 0.85
 
-    pad_len = int(silence_pad_sec * sr)
-    pad_head = rng.normal(0.0, 1e-4, size=(pad_len,)).astype(np.float32)
-    pad_tail = rng.normal(0.0, 1e-4, size=(pad_len,)).astype(np.float32)
-    audio_padded = np.concatenate([pad_head, audio, pad_tail], axis=0)
+    # Extract natural low-energy room tone from the utterance boundaries to
+    # form realistic inter-turn silence margins.
+    win = 400
+    n_wins = max(len(audio) // win, 1)
+    trimmed = audio[: n_wins * win].reshape(n_wins, win)
+    win_rms = np.sqrt(np.mean(trimmed**2, axis=-1))
+    quiet_idx = int(np.argmin(win_rms))
+    room_tone_unit = trimmed[quiet_idx] * 0.25
+    pad_len = int(pause_margin_sec * sr)
+    reps = int(np.ceil(pad_len / max(len(room_tone_unit), 1)))
+    natural_pause = np.tile(room_tone_unit, reps)[:pad_len].astype(np.float32)
+    clean_audio = np.concatenate(
+        [natural_pause, audio, natural_pause], axis=0
+    ).astype(np.float32)
 
-    mel_40_full = fe_v1(audio_padded).numpy()
-    vad_40_full = compute_frame_vad_labels(mel_40_full)
-    feat_v2 = fe_v2(audio_padded).numpy()[::2]
-    num_v2 = feat_v2.shape[0]
-    idx_v2 = np.minimum(np.arange(num_v2) * 6 + 1, len(vad_40_full) - 1)
-    vad_v2 = vad_40_full[idx_v2]
-    mel_40 = mel_40_full[idx_v2]
-    vad_40 = vad_v2
+    if apply_mtr and item.get("role") != "enroll":
+      proc_audio = dataset.apply_mtr_augmentation(
+          clean_audio,
+          sample_rate=16000,
+          snr_db_range=(6.0, 20.0),
+          rt60_range=(0.10, 0.30),
+          reverb_prob=0.5,
+          noise_prob=0.7,
+          rng=rng,
+      )
+    else:
+      proc_audio = clean_audio
 
-    records.append({
-        "utt_id": item["utt_id"],
-        "speaker_id": f"{item['language']}_{item['speaker_id']}",
-        "language": item["language"],
-        "role": item["role"],
-        "mel_40_full": mel_40_full,
-        "vad_40_full": vad_40_full,
-        "mel_40": mel_40,
-        "vad_40": vad_40,
-        "feat_v2": feat_v2,
-        "vad_v2": vad_v2,
-        "idx_v2": idx_v2,
-    })
+    clean_waves.append(clean_audio)
+    proc_waves.append(proc_audio)
+    wave_lengths.append(len(clean_audio))
+
+  records: list[dict[str, Any]] = []
+  pad_frames_10ms = max(int(pause_margin_sec / 0.010) - 1, 1)
+  batch_size = 128
+  for start in range(0, len(items), batch_size):
+    end = min(start + batch_size, len(items))
+    max_len = max(wave_lengths[start:end])
+    b_clean = np.zeros((end - start, max_len), dtype=np.float32)
+    b_proc = np.zeros((end - start, max_len), dtype=np.float32)
+    for j, idx in enumerate(range(start, end)):
+      length = wave_lengths[idx]
+      b_clean[j, :length] = clean_waves[idx]
+      b_proc[j, :length] = proc_waves[idx]
+
+    b_clean_mel_40 = fe_v1(b_clean).numpy()
+    b_mel_40 = (
+        fe_v1(b_proc).numpy() if apply_mtr else b_clean_mel_40
+    )
+    b_mel_80 = fe_80(b_proc).numpy()
+    b_feat_v2 = fe_v2(b_proc).numpy()
+
+    for j, idx in enumerate(range(start, end)):
+      item = items[idx]
+      length = wave_lengths[idx]
+      n_v1 = max(0, (length - 400) // 160 + 1)
+      n_v2_10ms = max(0, (length - 512) // 160 + 1)
+      n_v2 = (n_v2_10ms + 2) // 3
+
+      clean_mel_40 = b_clean_mel_40[j, :n_v1]
+      vad_40_full = compute_frame_vad_labels(clean_mel_40)
+      vad_40_full[:pad_frames_10ms] = int(configs.FrameLabel.SILENCE)
+      vad_40_full[-pad_frames_10ms:] = int(configs.FrameLabel.SILENCE)
+
+      mel_40_full = b_mel_40[j, :n_v1]
+      mel_80_full = b_mel_80[j, :n_v1]
+      feat_v2_full = b_feat_v2[j, :n_v2]
+      idx_30ms = np.minimum(
+          np.arange(n_v2) * 3 + 1, len(vad_40_full) - 1
+      )
+      vad_v2_full = vad_40_full[idx_30ms]
+
+      spk_id = str(item["speaker_id"])
+      lang = str(item["language"])
+      if not spk_id.startswith(f"{lang}_"):
+        spk_id = f"{lang}_{spk_id}"
+
+      records.append({
+          "utt_id": item["utt_id"],
+          "speaker_id": spk_id,
+          "language": lang,
+          "role": item["role"],
+          "mel_40_full": mel_40_full,
+          "mel_80_full": mel_80_full,
+          "vad_40_full": vad_40_full,
+          "feat_v2_full": feat_v2_full,
+          "vad_v2_full": vad_v2_full,
+      })
   return records
 
 
@@ -407,15 +507,26 @@ def build_utterances_from_mls_records(
 ) -> list[dataset.UtteranceData]:
   """Builds single-speaker `UtteranceData` from MLS records using `subspace`."""
   enroll_embs: dict[str, list[np.ndarray]] = {}
+  e_th = float(
+      subspace.get("energy_threshold", np.array(-7.5)).reshape(-1)[0]
+  )
+  mel_mean_v1 = subspace.get("mel_mean_v1", None)
+
   for r in records:
     if r["role"] == "enroll":
-      mel_src = r.get("mel_40_full", r["mel_40"])
-      vad_src = r.get("vad_40_full", r["vad_40"])
-      f_embs = project_speaker_frames(mel_src, subspace, window=45)
-      speech_idx = np.where(vad_src == 0)[0]
-      if len(speech_idx) < 5:
-        speech_idx = np.arange(len(f_embs))
-      utt_emb = dataset.l2_normalize_numpy(np.mean(f_embs[speech_idx], axis=0))
+      raw_360 = inference_lib.extract_360d_utterance_stats(
+          mel_40=r["mel_40_full"],
+          mel_80=r["mel_80_full"],
+          mel_mean_v1=mel_mean_v1,
+          energy_threshold=e_th,
+      )
+      x_norm = (raw_360 - subspace["feat_mean"]) / np.maximum(
+          subspace["feat_std"], 1e-5
+      )
+      emb_raw = x_norm @ subspace["proj_lda"]
+      if "proj_bias" in subspace:
+        emb_raw = emb_raw + subspace["proj_bias"]
+      utt_emb = dataset.l2_normalize_numpy(emb_raw)
       enroll_embs.setdefault(r["speaker_id"], []).append(utt_emb)
 
   speaker_centroids: dict[str, np.ndarray] = {}
@@ -431,16 +542,16 @@ def build_utterances_from_mls_records(
     spk_id = r["speaker_id"]
     if spk_id not in speaker_centroids:
       continue
-    mel_src = r.get("mel_40_full", r["mel_40"])
-    features, frame_embs = extract_subspace_conditioned_features(
-        mel_40_full=mel_src,
-        mel_40=r["mel_40"],
-        feat_v2=r["feat_v2"],
-        idx_v2=r["idx_v2"],
+    features, frame_embs = extract_pure_acoustic_features(
+        mel_40_full=r["mel_40_full"],
+        mel_80_full=r["mel_80_full"],
+        feat_v2_full=r["feat_v2_full"],
         subspace=subspace,
         frontend_version=frontend_version,
     )
-    labels = r["vad_40"] if frontend_version == "v1" else r["vad_v2"]
+    labels = (
+        r["vad_40_full"] if frontend_version == "v1" else r["vad_v2_full"]
+    )
 
     utterances.append(
         dataset.UtteranceData(
@@ -450,82 +561,10 @@ def build_utterances_from_mls_records(
             labels=labels.astype(np.int32),
             speaker_embedding=speaker_centroids[spk_id],
             frame_speaker_embeddings=frame_embs,
+            language=r.get("language"),
         )
     )
   return utterances
-
-
-def augment_utterances_with_speaker_rotations(
-    utterances: Sequence[dataset.UtteranceData],
-    num_rotations: int = 8,
-    subspace_rank: int = 8,
-    seed: int = 42,
-) -> list[dataset.UtteranceData]:
-  """Augments training utterances via orthogonal rotations in speaker subspace.
-
-  Applies random $K \\times K$ orthogonal matrices $Q \\in O(K)$ simultaneously
-  to the enrolled speaker d-vector, the speaker-subspace blocks of the acoustic
-  features, and frame-level speaker embeddings, preserving all exact cosine
-  similarities while uniformly covering the $K$-dimensional speaker hypersphere.
-  """
-  if num_rotations <= 1:
-    return list(utterances)
-  rng = np.random.default_rng(seed)
-  augmented: list[dataset.UtteranceData] = []
-  emb_dim = utterances[0].speaker_embedding.shape[0]
-  feat_dim = utterances[0].features.shape[1]
-  repeats = emb_dim // subspace_rank
-  num_feat_blocks = (
-      4 if feat_dim == 40 else (60 if feat_dim == 512 else 0)
-  )
-
-  for rot_idx in range(num_rotations):
-    if rot_idx == 0:
-      q_mat = np.eye(subspace_rank, dtype=np.float32)
-    else:
-      rand_mat = rng.standard_normal((subspace_rank, subspace_rank)).astype(
-          np.float32
-      )
-      q_mat, r_mat = np.linalg.qr(rand_mat)
-      q_mat = (q_mat * np.sign(np.diag(r_mat))).astype(np.float32)
-
-    for utt in utterances:
-      spk_k = utt.speaker_embedding[:subspace_rank] * np.sqrt(float(repeats))
-      rot_spk = (
-          np.tile(spk_k @ q_mat, (repeats,)) / np.sqrt(float(repeats))
-      ).astype(np.float32)
-
-      if rot_idx == 0 or num_feat_blocks == 0:
-        rot_features = utt.features
-      else:
-        rot_features = utt.features.copy()
-        span = num_feat_blocks * subspace_rank
-        blocks = rot_features[:, :span].reshape(
-            -1, num_feat_blocks, subspace_rank
-        )
-        rot_features[:, :span] = (blocks @ q_mat).reshape(-1, span)
-
-      rot_frame_embs = None
-      if utt.frame_speaker_embeddings is not None:
-        f_k = utt.frame_speaker_embeddings[:, :subspace_rank] * np.sqrt(
-            float(repeats)
-        )
-        rot_frame_embs = (
-            np.tile(f_k @ q_mat, (1, repeats)) / np.sqrt(float(repeats))
-        ).astype(np.float32)
-
-      augmented.append(
-          dataset.UtteranceData(
-              utt_id=f"{utt.utt_id}_rot{rot_idx}",
-              speaker_id=f"{utt.speaker_id}_rot{rot_idx}",
-              features=rot_features,
-              labels=utt.labels,
-              speaker_embedding=rot_spk,
-              cosine_scores=utt.cosine_scores,
-              frame_speaker_embeddings=rot_frame_embs,
-          )
-      )
-  return augmented
 
 
 def save_utterances_to_npz(
@@ -555,6 +594,10 @@ def save_utterances_to_npz(
   labels = np.zeros((num_examples, max_frames), dtype=np.int32)
   masks = np.zeros((num_examples, max_frames), dtype=np.float32)
   lengths = np.zeros((num_examples,), dtype=np.int32)
+  speaker_ids = np.array([u.speaker_id for u in utterances], dtype="<U64")
+  languages = np.array(
+      [u.language or "unknown" for u in utterances], dtype="<U16"
+  )
   frame_speaker_embeddings = (
       np.zeros((num_examples, max_frames, emb_dim), dtype=np.float32)
       if has_frame_embs
@@ -587,6 +630,8 @@ def save_utterances_to_npz(
       "labels": labels,
       "masks": masks,
       "lengths": lengths,
+      "speaker_ids": speaker_ids,
+      "languages": languages,
   }
   if frame_speaker_embeddings is not None:
     payload["frame_speaker_embeddings"] = frame_speaker_embeddings
@@ -620,6 +665,11 @@ def load_utterances_from_npz(npz_path: str) -> list[dataset.UtteranceData]:
         if "speaker_ids" in data
         else [f"spk_{i}" for i in range(features.shape[0])]
     )
+    languages = (
+        [str(lang_val) for lang_val in data["languages"]]
+        if "languages" in data
+        else [None for _ in range(features.shape[0])]
+    )
 
   utterances: list[dataset.UtteranceData] = []
   for i in range(features.shape[0]):
@@ -639,6 +689,7 @@ def load_utterances_from_npz(npz_path: str) -> list[dataset.UtteranceData]:
             speaker_embedding=speaker_embeddings[i].astype(np.float32),
             cosine_scores=cos,
             frame_speaker_embeddings=f_embs,
+            language=languages[i],
         )
     )
   return utterances
@@ -660,14 +711,19 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
       type=str,
       default=None,
       help=(
-          "Path to save/load LDA+WCCN speaker subspace .npz file when using "
-          "--mls_manifest."
+          "Path to save/load 360-D -> 256-D speaker subspace .npz file when "
+          "using --mls_manifest."
       ),
   )
   parser.add_argument(
       "--fit_subspace",
       action="store_true",
-      help="Fit and save a new LDA+WCCN speaker subspace on --mls_manifest.",
+      help="Fit and save a new speaker subspace on --mls_manifest.",
+  )
+  parser.add_argument(
+      "--apply_mtr",
+      action="store_true",
+      help="Apply Multistyle Training (MTR) RIR reverberation and noise.",
   )
   parser.add_argument(
       "--input_npz",
@@ -697,7 +753,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
       type=str,
       choices=["v1", "v2"],
       default="v1",
-      help="Frontend configuration version (v1=40d, v2=512d).",
+      help="Frontend configuration version (v1=40d@10ms, v2=512d@30ms).",
   )
   parser.add_argument(
       "--min_utterances",
@@ -716,12 +772,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
       type=int,
       default=1,
       help="Number of random shuffle passes over the utterance pool.",
-  )
-  parser.add_argument(
-      "--augment_speaker_rotations",
-      type=int,
-      default=1,
-      help="Number of orthogonal speaker-subspace rotations to apply.",
   )
   parser.add_argument(
       "--enrollment_less_prob",
@@ -754,7 +804,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
   )
 
   if args.mls_manifest is not None:
-    records = load_mls_manifest_records(args.mls_manifest)
+    records = load_mls_manifest_records(
+        args.mls_manifest, apply_mtr=args.apply_mtr, mtr_seed=args.seed
+    )
     if args.fit_subspace or (
         args.subspace_npz is not None and not os.path.exists(args.subspace_npz)
     ):
@@ -783,10 +835,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
   rng = np.random.default_rng(args.seed)
   all_concat: list[dataset.UtteranceData] = []
-  for p in range(max(1, args.num_passes)):
+  for _ in range(max(1, args.num_passes)):
     pool = list(single_utterances)
-    if p > 0:
-      rng.shuffle(pool)
+    rng.shuffle(pool)
     concat_pass = dataset.concat_utterance_group(
         pool,
         min_utterances=args.min_utterances,
@@ -796,13 +847,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         rng=rng,
     )
     all_concat.extend(concat_pass)
-
-  if args.augment_speaker_rotations > 1:
-    all_concat = augment_utterances_with_speaker_rotations(
-        all_concat,
-        num_rotations=args.augment_speaker_rotations,
-        seed=args.seed,
-    )
 
   save_utterances_to_npz(all_concat, args.output_npz)
 

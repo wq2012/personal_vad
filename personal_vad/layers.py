@@ -59,8 +59,12 @@ class FeatureWiseModulationLayer(tf.keras.layers.Layer):
     self.feature_dim = feature_dim
     self.has_bias = has_bias
     self.apply_residual = apply_residual
+    scale_bias_init = "ones" if (has_bias and not apply_residual) else "zeros"
     self.fc_scale = tf.keras.layers.Dense(
-        feature_dim, use_bias=has_bias, name="fc_scale"
+        feature_dim,
+        use_bias=has_bias,
+        bias_initializer=scale_bias_init,
+        name="fc_scale",
     )
     self.fc_bias = tf.keras.layers.Dense(
         feature_dim, use_bias=has_bias, name="fc_bias"

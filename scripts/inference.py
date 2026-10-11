@@ -27,6 +27,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
   )
   parser.add_argument(
       "--model",
+      "--model_id",
+      dest="model",
       type=str,
       required=True,
       help=(
@@ -36,15 +38,24 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
   )
   parser.add_argument(
       "--audio_path",
+      "--audio_wav",
+      dest="audio_path",
       type=str,
       required=True,
-      help="Path to input 16 kHz audio file (.wav or .flac).",
+      help="Path to input audio file (.wav or .flac).",
   )
   parser.add_argument(
       "--enrollment_path",
+      "--enroll_wav",
+      dest="enrollment_path",
       type=str,
       default=None,
       help="Optional path to target speaker enrollment audio (.wav or .flac).",
+  )
+  parser.add_argument(
+      "--enrollment_less",
+      action="store_true",
+      help="Run in enrollment-less mode (zero target speaker embedding).",
   )
   parser.add_argument(
       "--use_tflite",
@@ -75,9 +86,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Sequence[str]] = None) -> dict[str, Any]:
   args = parse_args(argv)
   engine = inference.load_pretrained(args.model)
+  enroll_arg = None if args.enrollment_less else args.enrollment_path
   result = engine.predict_audio(
       audio=args.audio_path,
-      enrollment_audio_or_embedding=args.enrollment_path,
+      enrollment_audio_or_embedding=enroll_arg,
       use_tflite=args.use_tflite,
       threshold=args.threshold,
   )

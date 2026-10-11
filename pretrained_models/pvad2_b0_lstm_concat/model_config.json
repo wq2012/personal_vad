@@ -20,5 +20,5 @@
   "prenet_dim": 64,
   "prenet_output_dim": 256,
   "film_has_bias": true,
-  "film_apply_residual": true
+  "film_apply_residual": false
 }

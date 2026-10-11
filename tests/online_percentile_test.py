@@ -59,6 +59,10 @@ class OnlinePercentileTest(unittest.TestCase):
     self.assertAlmostEqual(float(rescaled[0]), 0.0, places=5)
     self.assertAlmostEqual(float(rescaled[-1]), 1.0, places=5)
 
+    # Verify strict causal prefix invariance (frame t does not depend on >t)
+    rescaled_prefix = online_percentile.rescale_cosine_scores(raw_scores[:50])
+    np.testing.assert_array_equal(rescaled_prefix, rescaled[:50])
+
   def test_invalid_arguments_raise(self):
     with self.assertRaises(ValueError):
       online_percentile.OnlinePercentileValue(bins=0)

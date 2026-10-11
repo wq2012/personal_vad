@@ -60,8 +60,14 @@ class TFLiteExportTest(unittest.TestCase):
       tflite_probs = runner_fp32.predict(features, speaker_embedding=spk_emb)
       np.testing.assert_allclose(expected_probs, tflite_probs, atol=1e-4)
 
-      # Test arbitrary sequence length (15 frames across two 8-frame chunks)
+      # Test multi-chunk stateful streaming equivalence across two chunks
       long_features = np.random.randn(15, 32).astype(np.float32)
+      expected_long = pvad.predict_proba(
+          long_features[None, ...], speaker_embedding=spk_emb[None, ...]
+      ).numpy()[0]
+      fp32_long = runner_fp32.predict(long_features, speaker_embedding=spk_emb)
+      np.testing.assert_allclose(expected_long, fp32_long, atol=1e-4)
+
       runner_int8 = tflite_export.TFLitePersonalVadRunner(int8_bytes)
       long_probs = runner_int8.predict(
           long_features, speaker_embedding=spk_emb
@@ -84,7 +90,7 @@ class TFLiteExportTest(unittest.TestCase):
         pvad, quantize=False, sequence_length=4
     )
     runner = tflite_export.TFLitePersonalVadRunner(tflite_bytes)
-    features = np.random.randn(4, 16).astype(np.float32)
+    features = np.random.randn(11, 16).astype(np.float32)
     spk_emb = np.random.randn(16).astype(np.float32)
 
     expected = pvad.predict_proba(

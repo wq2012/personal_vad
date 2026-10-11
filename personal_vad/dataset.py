@@ -1,9 +1,11 @@
-"""Dataset preparation and utterance concatenation for Personal VAD.
+"""Dataset preparation, MTR augmentation, and concatenation for Personal VAD.
 
 Implements:
 - Multi-speaker utterance concatenation (`concat_utterance_sequence` and
   `concat_utterance_group`) for constructing training and evaluation examples
   (Personal VAD 1.0, arXiv:1908.04284, Section 3.1).
+- Multistyle Training (MTR) room reverberation and additive noise augmentation
+  (`apply_mtr_augmentation`).
 - Standard 2-class VAD label conversion (`convert_alignment_for_vad_baseline`).
 - Deterministic speaker embedding selection
   (`use_true_speaker_embedding_for_utterance`).
@@ -18,6 +20,7 @@ import dataclasses
 import hashlib
 from typing import Any, Optional
 import numpy as np
+from scipy import signal
 from . import configs
 
 try:
@@ -45,6 +48,7 @@ class UtteranceData:
       cosine similarity scores `s_t` in `SC`, `ST`, and `SET` modes).
     cosine_scores: Optional float32 frame-level cosine similarity scores `s_t`
       of shape `[num_frames, 1]` or `[num_frames]`.
+    language: Optional ISO language code (e.g. `"en"`, `"de"`, `"fr"`).
   """
 
   utt_id: str
@@ -54,6 +58,7 @@ class UtteranceData:
   speaker_embedding: np.ndarray
   frame_speaker_embeddings: Optional[np.ndarray] = None
   cosine_scores: Optional[np.ndarray] = None
+  language: Optional[str] = None
 
 
 def l2_normalize_numpy(
@@ -63,6 +68,94 @@ def l2_normalize_numpy(
   vec = np.asarray(vec, dtype=np.float32)
   norm = np.linalg.norm(vec, axis=axis, keepdims=True)
   return np.where(norm > eps, vec / np.maximum(norm, eps), 0.0)
+
+
+def apply_mtr_augmentation(
+    waveform: np.ndarray,
+    sample_rate: int = 16000,
+    snr_db_range: tuple[float, float] = (5.0, 20.0),
+    rt60_range: tuple[float, float] = (0.10, 0.35),
+    reverb_prob: float = 0.6,
+    noise_prob: float = 0.8,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+  """Applies Multistyle Training (MTR) reverberation and background noise.
+
+  Simulates causal room impulse response (RIR) early reflections + exponential
+  late reverberation decay and mixes shaped environmental background noise at
+  a randomly sampled Signal-to-Noise Ratio (SNR) in `snr_db_range`, following
+  Personal VAD 1.0 Section 3.1.
+
+  Args:
+    waveform: 1-D float32 audio array of shape `[num_samples]`.
+    sample_rate: Audio sample rate in Hz (default 16000).
+    snr_db_range: Tuple `(min_snr_db, max_snr_db)` for additive noise.
+    rt60_range: Tuple `(min_rt60_sec, max_rt60_sec)` for room reverberation.
+    reverb_prob: Probability of applying synthetic RIR convolution.
+    noise_prob: Probability of mixing additive background noise.
+    rng: Optional NumPy random Generator.
+
+  Returns:
+    Float32 MTR-augmented waveform of the same length as `waveform`.
+  """
+  wav = np.asarray(waveform, dtype=np.float32).reshape(-1)
+  if wav.size == 0:
+    return wav.copy()
+  if rng is None:
+    rng = np.random.default_rng()
+
+  out = wav.copy()
+
+  # 1. Causal Room Impulse Response (RIR) reverberation
+  if float(rng.uniform(0.0, 1.0)) < reverb_prob:
+    rt60 = float(rng.uniform(rt60_range[0], rt60_range[1]))
+    rir_len = max(int(min(rt60 * 0.6, 0.20) * sample_rate), 64)
+    t_sec = np.arange(rir_len, dtype=np.float32) / float(sample_rate)
+    decay_rate = 6.907755 / max(rt60, 0.05)  # ln(10^3) / RT60
+    late_tail = rng.standard_normal(rir_len).astype(np.float32) * np.exp(
+        -decay_rate * t_sec
+    )
+    rir = np.zeros(rir_len, dtype=np.float32)
+    rir[0] = 1.0  # Direct path at sample 0 preserves exact frame alignment
+    # Add 4 discrete early room reflections (5ms to 35ms)
+    for _ in range(4):
+      delay = int(rng.integers(int(0.005 * sample_rate), min(rir_len, 560)))
+      amp = float(rng.uniform(0.06, 0.22)) * (
+          1.0 if float(rng.uniform()) < 0.5 else -1.0
+      )
+      rir[delay] += amp
+    rir[int(0.010 * sample_rate):] += 0.04 * late_tail[
+        int(0.010 * sample_rate):
+    ]
+    rir /= max(float(np.linalg.norm(rir)), 1e-6)
+    reverb_wav = signal.fftconvolve(out, rir, mode="full")[: out.size]
+    out = reverb_wav.astype(np.float32)
+
+  # 2. Additive shaped background noise (pink/babble-like spectrum)
+  if float(rng.uniform(0.0, 1.0)) < noise_prob:
+    snr_db = float(rng.uniform(snr_db_range[0], snr_db_range[1]))
+    white = rng.standard_normal(out.size).astype(np.float32)
+    # Shape white noise with a causal first-order low-pass / formant filter
+    alpha = float(rng.uniform(0.45, 0.85))
+    b_filt = np.array([1.0 - alpha], dtype=np.float32)
+    a_filt = np.array([1.0, -alpha], dtype=np.float32)
+    shaped_noise = signal.lfilter(b_filt, a_filt, white).astype(np.float32)
+
+    active_mask = np.abs(out) > (0.12 * max(float(np.max(np.abs(out))), 1e-4))
+    if np.any(active_mask):
+      sig_power = float(np.mean(np.square(out[active_mask])))
+    else:
+      sig_power = float(np.mean(np.square(out)))
+    sig_power = max(sig_power, 1e-8)
+    noise_power = max(float(np.mean(np.square(shaped_noise))), 1e-8)
+    target_noise_power = sig_power / (10.0 ** (snr_db / 10.0))
+    scale = np.sqrt(target_noise_power / noise_power)
+    out = out + (scale * shaped_noise).astype(np.float32)
+
+  peak = float(np.max(np.abs(out)))
+  if peak > 0.99:
+    out = out * (0.98 / peak)
+  return out.astype(np.float32)
 
 
 def compute_frame_cosine_similarity(
@@ -257,8 +350,6 @@ def concat_utterance_sequence(
           np.asarray(utt.frame_speaker_embeddings, dtype=np.float32)
       )
     else:
-      # Broadcast utterance-level speaker embedding to every frame so cosine
-      # similarity can still be computed for ST/SET/SC modes.
       tiled_emb = np.tile(
           l2_normalize_numpy(utt.speaker_embedding).reshape(1, -1),
           (feat.shape[0], 1),
@@ -280,6 +371,7 @@ def concat_utterance_sequence(
       speaker_embedding=target_embedding,
       frame_speaker_embeddings=concat_frame_embs,
       cosine_scores=cosine_scores,
+      language=target_utt.language,
   )
 
 
@@ -295,9 +387,11 @@ def concat_utterance_group(
 
   For each group:
   1. Draws a group size `n ~ Uniform({min_utterances, ..., max_utterances})`.
-  2. Draws a random `target_index ~ Uniform({0, ..., n - 1})`.
-  3. Concatenates the `n` utterances via `concat_utterance_sequence`.
-  4. Optionally applies enrollment-less conditioning with probability
+  2. When `n > 1`, prefers selecting utterances from distinct speakers in the
+     remaining pool so multi-speaker sequences genuinely contain speaker turns.
+  3. Draws a random `target_index ~ Uniform({0, ..., n - 1})`.
+  4. Concatenates the `n` utterances via `concat_utterance_sequence`.
+  5. Optionally applies enrollment-less conditioning with probability
      `enrollment_less_prob` (Algorithm 1 in Personal VAD 2.0).
 
   Args:
@@ -320,12 +414,24 @@ def concat_utterance_group(
   if rng is None:
     rng = np.random.default_rng()
 
+  pool = list(utterances)
   outputs: list[UtteranceData] = []
   idx = 0
-  total = len(utterances)
+  total = len(pool)
   while idx < total:
     group_size = int(rng.integers(min_utterances, max_utterances + 1))
-    group = utterances[idx:min(idx + group_size, total)]
+    end_idx = min(idx + group_size, total)
+    # Ensure distinct speakers within a multi-utterance group when available
+    seen_speakers = {pool[idx].speaker_id}
+    for pos in range(idx + 1, end_idx):
+      if pool[pos].speaker_id in seen_speakers:
+        for cand in range(end_idx, total):
+          if pool[cand].speaker_id not in seen_speakers:
+            pool[pos], pool[cand] = pool[cand], pool[pos]
+            break
+      seen_speakers.add(pool[pos].speaker_id)
+
+    group = pool[idx:end_idx]
     idx += len(group)
 
     target_index = int(rng.integers(0, len(group)))

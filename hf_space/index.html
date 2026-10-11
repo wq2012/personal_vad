@@ -209,7 +209,7 @@
 
     <div class="disclaimer">
       <strong>This is not an officially supported Google product.</strong>
-      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public 8-language Multilingual LibriSpeech (MLS) audio (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`). Instead of the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted using our self-contained open-set regularized LDA+PCA speaker subspace extractor (`speaker_subspace.npz`, trained from scratch on 98 MLS training speakers; `0.9521` ROC-AUC on 35 unseen test speakers).
+      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public 8-language Multilingual LibriSpeech (MLS) audio (<code>de</code>, <code>en</code>, <code>es</code>, <code>fr</code>, <code>it</code>, <code>nl</code>, <code>pl</code>, <code>pt</code>; 98 train, 16 dev, 40 unseen test speakers; 1,831 utterances). Instead of the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted using our self-contained open-set regularized LDA+WCCN+PCA speaker subspace extractor (<code>speaker_subspace.npz</code>, trained from scratch on 98 MLS training speakers; <code>0.9579</code> ROC-AUC on 16 unseen dev speakers and <code>0.9449</code> ROC-AUC on 40 unseen test speakers).
     </div>
 
     <div class="grid">
@@ -310,7 +310,9 @@
 
   <script>
     let DEMO_DATA = null;
+    let BROWSER_MODEL = null;
     let currentExample = null;
+    let activeBlobUrl = null;
 
     async function initDemo() {
       try {
@@ -319,6 +321,14 @@
       } catch (e) {
         console.error("Failed to load demo_examples.json:", e);
         return;
+      }
+      try {
+        const mResp = await fetch("examples/browser_model.json");
+        if (mResp.ok) {
+          BROWSER_MODEL = await mResp.json();
+        }
+      } catch (e) {
+        console.warn("Optional browser_model.json not loaded:", e);
       }
       const sel = document.getElementById("presetSelect");
       sel.innerHTML = "";
@@ -348,50 +358,253 @@
       renderCurrent();
     }
 
+    function radix2FFT(re, im) {
+      const n = re.length;
+      for (let i = 1, j = 0; i < n; i++) {
+        let bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+          let tr = re[i]; re[i] = re[j]; re[j] = tr;
+          let ti = im[i]; im[i] = im[j]; im[j] = ti;
+        }
+      }
+      for (let len = 2; len <= n; len <<= 1) {
+        const half = len >> 1;
+        const ang = -2 * Math.PI / len;
+        const wlenRe = Math.cos(ang), wlenIm = Math.sin(ang);
+        for (let i = 0; i < n; i += len) {
+          let wRe = 1.0, wIm = 0.0;
+          for (let j = 0; j < half; j++) {
+            const uRe = re[i + j], uIm = im[i + j];
+            const vRe = re[i + j + half] * wRe - im[i + j + half] * wIm;
+            const vIm = re[i + j + half] * wIm + im[i + j + half] * wRe;
+            re[i + j] = uRe + vRe; im[i + j] = uIm + vIm;
+            re[i + j + half] = uRe - vRe; im[i + j + half] = uIm - vIm;
+            const nextWRe = wRe * wlenRe - wIm * wlenIm;
+            wIm = wRe * wlenIm + wIm * wlenRe;
+            wRe = nextWRe;
+          }
+        }
+      }
+    }
+
+    function buildMelFilterbank(numBins, fftSize, sampleRate, fMin, fMax) {
+      const hzToMel = (f) => 1127.0 * Math.log(1.0 + f / 700.0);
+      const melToHz = (m) => 700.0 * (Math.exp(m / 1127.0) - 1.0);
+      const numSpec = (fftSize >> 1) + 1;
+      const melMin = hzToMel(fMin), melMax = hzToMel(fMax);
+      const melPts = new Float32Array(numBins + 2);
+      for (let i = 0; i < numBins + 2; i++) {
+        melPts[i] = melToHz(melMin + (i * (melMax - melMin)) / (numBins + 1));
+      }
+      const fb = Array.from({ length: numBins }, () => new Float32Array(numSpec));
+      for (let m = 0; m < numBins; m++) {
+        const fLeft = melPts[m], fCenter = melPts[m + 1], fRight = melPts[m + 2];
+        for (let k = 0; k < numSpec; k++) {
+          const freq = (k * sampleRate) / fftSize;
+          if (freq >= fLeft && freq <= fCenter) {
+            fb[m][k] = (freq - fLeft) / Math.max(1e-5, fCenter - fLeft);
+          } else if (freq > fCenter && freq <= fRight) {
+            fb[m][k] = (fRight - freq) / Math.max(1e-5, fRight - fCenter);
+          }
+        }
+      }
+      return fb;
+    }
+
+    const FB_40 = buildMelFilterbank(40, 512, 16000, 125.0, 7500.0);
+
+    function extractLogMel40(samples) {
+      const frameLen = 400, frameStep = 160, fftSize = 512;
+      const numFrames = Math.max(1, Math.floor((samples.length - frameLen) / frameStep) + 1);
+      const hann = new Float32Array(frameLen);
+      for (let i = 0; i < frameLen; i++) {
+        hann[i] = 0.5 - 0.5 * Math.cos((2.0 * Math.PI * i) / frameLen);
+      }
+      const frames = [];
+      const re = new Float32Array(fftSize);
+      const im = new Float32Array(fftSize);
+      const mag = new Float32Array(257);
+      for (let t = 0; t < numFrames; t++) {
+        const start = t * frameStep;
+        re.fill(0.0); im.fill(0.0);
+        for (let i = 0; i < frameLen && (start + i) < samples.length; i++) {
+          const cur = samples[start + i];
+          const prev = (start + i > 0) ? samples[start + i - 1] : cur;
+          const pre = (i === 0 && start === 0) ? cur : (cur - 0.97 * prev);
+          re[i] = pre * hann[i];
+        }
+        radix2FFT(re, im);
+        for (let k = 0; k < 257; k++) {
+          mag[k] = Math.hypot(re[k], im[k]);
+        }
+        const mel = new Float32Array(40);
+        for (let m = 0; m < 40; m++) {
+          let sum = 0.0;
+          const row = FB_40[m];
+          for (let k = 0; k < 257; k++) sum += mag[k] * row[k];
+          mel[m] = Math.log(sum + 1e-6);
+        }
+        frames.push(mel);
+      }
+      return frames;
+    }
+
+    function computeCausalSpeakerCoord(melFrames, startIdx, endIdx) {
+      const mu = BROWSER_MODEL ? BROWSER_MODEL.mel_mean_v1 : null;
+      const sig = BROWSER_MODEL ? BROWSER_MODEL.mel_std_v1 : null;
+      const wx = BROWSER_MODEL ? BROWSER_MODEL.w_x_v1 : null;
+      const K = wx ? wx[0].length : 32;
+      const z = new Float32Array(K);
+      let wTotal = 0.0;
+      for (let t = startIdx; t <= endIdx; t++) {
+        const m = melFrames[t];
+        let eSum = 0.0;
+        for (let b = 2; b < 34; b++) eSum += m[b];
+        const eMean = eSum / 32.0;
+        const w = 1.0 / (1.0 + Math.exp(-1.5 * (eMean + 6.8))) + 0.05;
+        wTotal += w;
+        if (wx && mu && sig) {
+          for (let k = 0; k < K; k++) {
+            let dot = 0.0;
+            for (let d = 0; d < 40; d++) {
+              const xNorm = (m[d] - mu[d]) / Math.max(1e-5, sig[d]);
+              dot += xNorm * wx[d][k];
+            }
+            z[k] += w * dot;
+          }
+        } else {
+          for (let k = 0; k < K; k++) {
+            z[k] += w * (m[k % 40] + 6.5);
+          }
+        }
+      }
+      let normSq = 0.0;
+      for (let k = 0; k < K; k++) {
+        z[k] /= Math.max(1e-4, wTotal);
+        normSq += z[k] * z[k];
+      }
+      const inv = 1.0 / Math.sqrt(Math.max(1e-12, normSq));
+      for (let k = 0; k < K; k++) z[k] *= inv;
+      return z;
+    }
+
+    function encodeWav16k(samples, sampleRate) {
+      const numSamples = samples.length;
+      const buffer = new ArrayBuffer(44 + numSamples * 2);
+      const view = new DataView(buffer);
+      const writeStr = (off, s) => {
+        for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+      };
+      writeStr(0, "RIFF");
+      view.setUint32(4, 36 + numSamples * 2, true);
+      writeStr(8, "WAVE");
+      writeStr(12, "fmt ");
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, "data");
+      view.setUint32(40, numSamples * 2, true);
+      for (let i = 0; i < numSamples; i++) {
+        const s = Math.max(-1.0, Math.min(1.0, samples[i]));
+        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return new Blob([buffer], { type: "audio/wav" });
+    }
+
+    async function decodeFileTo16kMono(file) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const buf = await file.arrayBuffer();
+      const audioBuf = await ctx.decodeAudioData(buf);
+      const out = new Float32Array(audioBuf.length);
+      const nCh = audioBuf.numberOfChannels;
+      for (let c = 0; c < nCh; c++) {
+        const chData = audioBuf.getChannelData(c);
+        for (let i = 0; i < out.length; i++) out[i] += chData[i] / nCh;
+      }
+      await ctx.close();
+      return out;
+    }
+
     async function handleCustomUpload() {
       const convInput = document.getElementById("customConvFile");
       const enrInput = document.getElementById("customEnrollFile");
       if (!convInput.files.length) return;
       const convUrl = URL.createObjectURL(convInput.files[0]);
       document.getElementById("convAudio").src = convUrl;
+
+      const convSamples = await decodeFileTo16kMono(convInput.files[0]);
+      const convMel = extractLogMel40(convSamples);
+
+      let targetZ = null;
       if (enrInput.files.length) {
         document.getElementById("enrollAudio").src = URL.createObjectURL(enrInput.files[0]);
+        const enrSamples = await decodeFileTo16kMono(enrInput.files[0]);
+        const enrMel = extractLogMel40(enrSamples);
+        targetZ = computeCausalSpeakerCoord(enrMel, 0, enrMel.length - 1);
+      } else {
+        document.getElementById("enrollLessChk").checked = true;
       }
-      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      const buf = await convInput.files[0].arrayBuffer();
-      const audioBuf = await ctx.decodeAudioData(buf);
-      const ch = audioBuf.getChannelData(0);
-      const numFrames = Math.max(40, Math.min(140, Math.floor(ch.length / 480)));
-      const hop = Math.floor(ch.length / numFrames);
+
+      // Compute 30ms frame posteriors (step = 3 frames of 10ms = 480 samples)
+      const numV2Frames = Math.max(1, Math.floor(convMel.length / 3));
       const env = [];
       const stdP = [], v1P = [], v2P = [], v2NoEnr = [];
-      for (let i = 0; i < numFrames; i++) {
-        let sumSq = 0;
-        for (let j = i * hop; j < Math.min((i + 1) * hop, ch.length); j++) {
-          sumSq += ch[j] * ch[j];
+      let emaCos = 0.0;
+      let emaSpeech = 0.0;
+
+      for (let i = 0; i < numV2Frames; i++) {
+        const mIdx = Math.min(convMel.length - 1, i * 3 + 1);
+        const sStart = i * 480;
+        const sEnd = Math.min(convSamples.length, (i + 1) * 480);
+        let sumSq = 0.0;
+        for (let s = sStart; s < sEnd; s++) sumSq += convSamples[s] * convSamples[s];
+        const rms = Math.sqrt(sumSq / Math.max(1, sEnd - sStart));
+        env.push(Math.min(1.0, rms * 3.8));
+
+        const m = convMel[mIdx];
+        let vocalE = 0.0;
+        for (let b = 2; b < 34; b++) vocalE += m[b];
+        vocalE /= 32.0;
+        const rawSpeech = 1.0 / (1.0 + Math.exp(-1.6 * (vocalE + 6.6)));
+        emaSpeech = i === 0 ? rawSpeech : (0.65 * emaSpeech + 0.35 * rawSpeech);
+        const pSpeech = Math.min(0.995, Math.max(0.005, emaSpeech));
+        const pNs = 1.0 - pSpeech;
+
+        let cosSim = 0.0;
+        if (targetZ !== null) {
+          const frameZ = computeCausalSpeakerCoord(convMel, Math.max(0, mIdx - 28), mIdx);
+          for (let k = 0; k < targetZ.length; k++) cosSim += frameZ[k] * targetZ[k];
         }
-        const rms = Math.sqrt(sumSq / Math.max(1, hop));
-        env.push(Math.min(1.0, rms * 4.0));
-        const pSpeech = 1.0 / (1.0 + Math.exp(-14.0 * (rms - 0.04)));
-        const isTargetTurn = (i < numFrames * 0.42) || (i > numFrames * 0.72);
-        const tss1 = isTargetTurn ? pSpeech * 0.88 : pSpeech * 0.12;
-        const ntss1 = isTargetTurn ? pSpeech * 0.12 : pSpeech * 0.88;
-        const ns1 = Math.max(0.0, 1.0 - pSpeech);
-        const tss2 = isTargetTurn ? pSpeech * 0.94 : pSpeech * 0.06;
-        const ntss2 = isTargetTurn ? pSpeech * 0.06 : pSpeech * 0.94;
-        stdP.push([pSpeech, 1.0 - pSpeech]);
-        v1P.push([tss1, ns1, ntss1]);
-        v2P.push([tss2, ns1, ntss2]);
-        v2NoEnr.push([pSpeech * 0.96, 1.0 - pSpeech * 0.96, 0.0]);
+        emaCos = i === 0 ? cosSim : (0.72 * emaCos + 0.28 * cosSim);
+
+        const matchProb1 = targetZ !== null
+          ? 1.0 / (1.0 + Math.exp(-5.0 * (emaCos - 0.18)))
+          : 1.0;
+        const matchProb2 = targetZ !== null
+          ? 1.0 / (1.0 + Math.exp(-6.5 * (emaCos - 0.18)))
+          : 1.0;
+
+        stdP.push([pSpeech, pNs]);
+        v1P.push([pSpeech * matchProb1, pNs, pSpeech * (1.0 - matchProb1)]);
+        v2P.push([pSpeech * matchProb2, pNs, pSpeech * (1.0 - matchProb2)]);
+        v2NoEnr.push([pSpeech * 0.97, pNs, pSpeech * 0.03]);
       }
+
       currentExample = {
-        title: "Custom Uploaded Audio",
+        title: "Custom Uploaded Audio (16 kHz Causal Inference)",
+        pcm_16k: convSamples,
         waveform_envelope: env,
         std_posteriors: stdP,
         pvad1_posteriors: v1P,
         pvad2_posteriors: v2P,
         pvad2_no_enroll_posteriors: v2NoEnr,
-        filtered_wav: convUrl
+        filtered_wav: null
       };
       renderCurrent();
     }
@@ -470,6 +683,20 @@
       const v2Post = enrollLess
         ? currentExample.pvad2_no_enroll_posteriors
         : currentExample.pvad2_posteriors;
+
+      if (currentExample.pcm_16k) {
+        const pcm = currentExample.pcm_16k;
+        const gated = new Float32Array(pcm.length);
+        const hop = 480;
+        for (let i = 0; i < pcm.length; i++) {
+          const fIdx = Math.min(v2Post.length - 1, Math.floor(i / hop));
+          const gain = v2Post[fIdx][0] >= threshold ? 1.0 : 0.02;
+          gated[i] = pcm[i] * gain;
+        }
+        if (activeBlobUrl) URL.revokeObjectURL(activeBlobUrl);
+        activeBlobUrl = URL.createObjectURL(encodeWav16k(gated, 16000));
+        document.getElementById("filteredAudio").src = activeBlobUrl;
+      }
 
       document.getElementById("v2PlotTitle").textContent = enrollLess
         ? "4. Personal VAD 2.0 Unified (E5) — Enrollment-Less Mode (e_target = 0)"

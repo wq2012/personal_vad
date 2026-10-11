@@ -34,28 +34,28 @@ metrics:
 - **Loss Function**: `cross_entropy`
 - **Trainable Parameters**: `1,091,267`
 - **Safetensors Checkpoint (`model.safetensors`)**: `4278.78 KB`
-- **FP32 TFLite Flatbuffer (`model_fp32.tflite`)**: `4422.14 KB`
-- **8-Bit Quantized TFLite (`model_quantized.tflite`)**: `1397.80 KB`
-- **Primary Concatenated Test Set micro-mAP**: **`0.9092`** (Overall frame accuracy: `0.8413`)
+- **FP32 TFLite Flatbuffer (`model_fp32.tflite`)**: `4391.39 KB`
+- **8-Bit Quantized TFLite (`model_quantized.tflite`)**: `1367.07 KB`
+- **Primary Concatenated Test Set micro-mAP**: **`0.7850`** (Overall frame accuracy: `0.7017`)
 
 ## Included Files
 
 - `model.safetensors`: Safetensors weights for secure, fast loading.
 - `model.weights.h5`: Keras HDF5 checkpoint weights.
 - `model_config.json`: Serialized `personal_vad.ModelConfig` spec.
-- `model_fp32.tflite`: Unquantized 32-bit float TFLite flatbuffer.
-- `model_quantized.tflite`: 8-bit dynamic-range quantized TFLite flatbuffer for on-device deployment.
-- `speaker_subspace.npz`: Open-set regularized LDA+PCA speaker subspace projection matrix (`256`-d L2-normalized d-vectors, trained from scratch on the 98 MLS training speakers).
-- `evaluation_metrics.json`: Full test-set evaluation metrics on 35 unseen multilingual speakers (with 95% bootstrap CIs).
+- `model_fp32.tflite`: Unquantized 32-bit float stateful streaming TFLite flatbuffer (`state_in` -> `(probs, state_out)`).
+- `model_quantized.tflite`: 8-bit dynamic-range quantized stateful streaming TFLite flatbuffer for on-device deployment.
+- `speaker_subspace.npz`: Open-set regularized LDA+WCCN+PCA speaker subspace projection matrix (`256`-d L2-normalized d-vectors, trained from scratch on the 98 MLS training speakers).
+- `evaluation_metrics.json`: Full test-set evaluation metrics on 40 unseen multilingual speakers (with utterance-cluster 95% bootstrap CIs).
 
 ## Speaker Embedding (`d-vector`) Extractor Design & Transparency
 
 In the original Personal VAD 1.0 and 2.0 papers, speaker embeddings (`e_target`) and frame-level cosine scores (`s_t`) were extracted using Google's internal 3-layer LSTM speaker verification network (`4.88M` parameters) trained with Generalized End-to-End (`GE2E`) loss on proprietary vendor-collected corpora.
 
-To keep this open-source reproduction completely self-contained in pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX dependencies, **we trained our own lightweight, non-neural open-set 256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) from scratch on the 98 training speakers (`922` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset**:
-1. **360-D Multi-Resolution Acoustic Summary**: Over voiced speech frames (or a 31-frame / ~310 ms causal sliding window for frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D log-Mel `[mean, std]` (160-D).
-2. **256-D Regularized LDA + PCA Projection**: Applies Z-score standardization, projects onto a 256-D discriminative subspace fitted via regularized Linear Discriminant Analysis (LDA) and orthogonal PCA completion on the 98 training speakers, and L2-normalizes the resulting vector (`||e||_2 = 1`).
-3. **Unseen-Speaker Verification Accuracy**: On the **35 held-out unseen test speakers** (`315` utterances across 8 languages), `speaker_subspace.npz` achieves an open-set speaker verification **ROC-AUC of `0.9521`** (mean positive cosine similarity `0.7130` vs. negative `-0.0082`). Users may also pass any external 256-D L2-normalized neural d-vector directly to `PersonalVadModel` or `PersonalVadInferenceEngine`.
+To keep this open-source reproduction completely self-contained in pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX dependencies, **we trained our own lightweight, non-neural open-set 256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) from scratch on the 98 training speakers (`1,159` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset** (`16` unseen development speakers / `192` utterances; `40` unseen test speakers / `480` utterances):
+1. **360-D Causal Multi-Resolution Acoustic Summary**: Over voiced speech frames (or a strictly causal 31-frame / ~310 ms sliding window for frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D log-Mel `[mean, std]` (160-D), while the Personal VAD network's acoustic input `x_t` remains 100% pure log-Mel filterbank energies.
+2. **256-D Regularized LDA + WCCN + PCA Projection**: Applies Z-score standardization, projects onto a 256-D discriminative subspace fitted via regularized Linear Discriminant Analysis (LDA), Within-Class Covariance Normalization (WCCN), and orthogonal PCA completion on the 98 training speakers, adds a fixed positive-cone offset on coordinate 255, and L2-normalizes the resulting vector (`||e||_2 = 1`).
+3. **Unseen-Speaker Verification Accuracy**: On the **16 unseen development speakers** (`192` utterances), `speaker_subspace.npz` achieves an open-set speaker verification **ROC-AUC of `0.9579`**, and on the **40 held-out unseen test speakers** (`480` utterances across 8 languages), it achieves a **ROC-AUC of `0.9449`** (mean positive cosine similarity `0.5424` vs. negative `-0.0166`). Users may also pass any external 256-D L2-normalized neural d-vector directly to `PersonalVadModel` or `PersonalVadInferenceEngine`.
 
 ## Quickstart Usage
 
@@ -65,17 +65,17 @@ To keep this open-source reproduction completely self-contained in pure TensorFl
 import personal_vad
 
 engine = personal_vad.load_pretrained("wq2012/personal-vad-v2-conformer-unified")
-result = engine.predict_audio(
-    audio="conversation_16k.wav",
-    enrollment_audio_or_embedding="target_speaker_enroll_16k.wav",
+result = engine.infer_from_files(
+    audio_path="conversation_16k.wav",
+    enroll_path="target_speaker_enroll_16k.wav",
     use_tflite=False,
     threshold=0.5,
 )
 print("Summary:", result["summary"])
-print("Posteriors shape:", result["posteriors"].shape)
+print("Probabilities shape:", result["probabilities"].shape)
 ```
 
-### 2. On-Device 8-Bit Quantized `.tflite` Execution
+### 2. On-Device Stateful 8-Bit Quantized `.tflite` Execution
 
 ```python
 from huggingface_hub import hf_hub_download
@@ -93,34 +93,49 @@ probs = runner.predict(
     features=features,
     speaker_embedding=speaker_embedding,
     cosine_score=cosine_score,
+    chunk_size=16,
 )
 print("TFLite output shape:", probs.shape)
 ```
 
 ## Open-Source Multilingual LibriSpeech Benchmark Results
 
-All models were trained on 98 training speakers (`922` utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`) and evaluated on **35 held-out unseen test speakers** (`315` utterances, zero speaker overlap).
+All models were trained on 98 training speakers (`1,159` utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`), validated on 16 unseen dev speakers (`192` utterances), and evaluated on **40 held-out unseen test speakers** (`480` utterances: `120` enrollment + `360` evaluation utterances, zero speaker overlap).
 
 ### Personal VAD 1.0 Models (Concatenated Multi-Speaker Test Set)
 
-| Model ID | Mode | Loss | Target Speech AP (`tss`) | Silence AP (`ns`) | Non-Target Speech AP (`ntss`) | Micro mAP (95% Bootstrap CI) | INT8 TFLite mAP | Quantized Size |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `pvad1_sc_baseline` | `SC` | `cross_entropy` | 0.9435 | 0.9604 | 0.7848 | **0.9161** ([0.9056, 0.9277]) | 0.9090 | 196.4 KB |
-| `pvad1_st_ce` | `ST` | `cross_entropy` | 0.9394 | 0.9336 | 0.7550 | **0.8834** ([0.8668, 0.9014]) | 0.8804 | 197.4 KB |
-| `pvad1_et_ce` | `ET` | `cross_entropy` | 0.9362 | 0.9536 | 0.7817 | **0.8665** ([0.8460, 0.8897]) | 0.8609 | 262.4 KB |
-| `pvad1_set_ce` | `SET` | `cross_entropy` | 0.9385 | 0.9510 | 0.7725 | **0.8469** ([0.8237, 0.8712]) | 0.8521 | 262.7 KB |
-| `pvad1_et_wpl` | `ET` | `weighted_pairwise` | 0.9432 | 0.9433 | 0.7695 | **0.8652** ([0.8467, 0.8853]) | 0.8691 | 262.4 KB |
+| Model ID | Mode | Loss | Target Speech AP (`tss`) | Silence AP (`ns`) | Non-Target Speech AP (`ntss`) | Clean Micro mAP (95% CI) | MTR Micro mAP | INT8 TFLite mAP | Quantized Size |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `pvad1_sc_baseline` | `SC` | `cross_entropy` | 0.7974 | 0.9072 | 0.8303 | **0.8422** ([0.8279, 0.8559]) | 0.6303 | 0.8422 | 199.4 KB |
+| `pvad1_st_ce` | `ST` | `cross_entropy` | 0.8549 | 0.9144 | 0.8804 | **0.8826** ([0.8695, 0.8954]) | 0.6883 | 0.8827 | 200.4 KB |
+| `pvad1_et_ce` | `ET` | `cross_entropy` | 0.8253 | 0.8996 | 0.8322 | **0.8452** ([0.8307, 0.8592]) | 0.6475 | 0.8418 | 265.4 KB |
+| `pvad1_set_ce` | `SET` | `cross_entropy` | 0.8708 | 0.9098 | 0.8814 | **0.8858** ([0.8712, 0.9008]) | 0.7072 | 0.8844 | 265.7 KB |
+| `pvad1_et_wpl` | `ET` | `weighted_pairwise` | 0.8215 | 0.8947 | 0.8358 | **0.8463** ([0.8321, 0.8604]) | 0.6438 | 0.8464 | 265.4 KB |
 
 ### Personal VAD 2.0 Models (Non-Concat & Concat Test Sets)
 
-| Model ID | Backbone | Conditioning | Non-Concat mAP | Concat `tss` AP | Concat `ns` AP | Concat `ntss` AP | Concat Micro mAP | INT8 TFLite mAP | Quantized Size |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `pvad2_b0_lstm_concat` | `lstm_v2` | `concat` | 0.7006 | 0.7464 | 0.9378 | 0.3172 | **0.8088** | 0.8092 | 2007.9 KB |
-| `pvad2_e0_conformer_concat` | `conformer` | `concat` | 0.7408 | 0.8336 | 0.9678 | 0.5071 | **0.8502** | 0.8329 | 898.3 KB |
-| `pvad2_e1_conformer_film_dvector` | `conformer` | `film_dvector` | 0.9025 | 0.9370 | 0.9710 | 0.7709 | **0.9060** | 0.9009 | 917.0 KB |
-| `pvad2_e2_conformer_film_cos` | `conformer` | `film_cos` | 0.9207 | 0.9492 | 0.9739 | 0.8172 | **0.9153** | 0.9086 | 1364.0 KB |
-| `pvad2_e3_conformer_film_dvector_cos` | `conformer` | `film_dvector_cos` | 0.9158 | 0.9476 | 0.9776 | 0.8169 | **0.9222** | 0.9127 | 1397.8 KB |
-| **`pvad2_e5_conformer_unified`** | `conformer` | `film_dvector_cos` | 0.8574 | 0.9250 | 0.9644 | 0.7558 | **0.9092** | 0.8939 | 1397.8 KB |
+| Model ID | Backbone | Conditioning | Non-Concat mAP | Concat `tss` AP | Concat `ns` AP | Concat `ntss` AP | Clean Concat mAP (95% CI) | MTR Concat mAP | INT8 TFLite mAP | Quantized Size |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `pvad2_b0_lstm_concat` | `lstm_v2` | `concat` | 0.6911 | 0.4976 | 0.9227 | 0.5322 | **0.7037** ([0.6904, 0.7161]) | 0.5420 | 0.7036 | 2012.2 KB |
+| `pvad2_e0_conformer_concat` | `conformer` | `concat` | 0.7640 | 0.5960 | 0.9593 | 0.6876 | **0.7865** ([0.7706, 0.8025]) | 0.6866 | 0.7857 | 881.0 KB |
+| `pvad2_e1_conformer_film_dvector` | `conformer` | `film_dvector` | 0.8248 | 0.7816 | 0.9359 | 0.8206 | **0.8436** ([0.8267, 0.8590]) | 0.7200 | 0.8434 | 899.4 KB |
+| `pvad2_e2_conformer_film_cos` | `conformer` | `film_cos` | 0.8742 | 0.8423 | 0.9430 | 0.8695 | **0.8788** ([0.8669, 0.8912]) | 0.7067 | 0.8784 | 1333.4 KB |
+| `pvad2_e3_conformer_film_dvector_cos` | `conformer` | `film_dvector_cos` | 0.8673 | 0.8360 | 0.9454 | 0.8688 | **0.8830** ([0.8706, 0.8946]) | 0.7222 | 0.8831 | 1367.1 KB |
+| `pvad2_e4_conformer_int8` | `conformer` | `film_dvector_cos` | 0.8674 | 0.8363 | 0.9455 | 0.8689 | **0.8831** ([0.8708, 0.8947]) | 0.7221 | 0.8831 | 1367.1 KB |
+| **`pvad2_e5_conformer_unified`** | `conformer` | `film_dvector_cos` | 0.7919 | 0.6773 | 0.9265 | 0.7327 | **0.7850** ([0.7639, 0.8038]) | 0.6203 | 0.7849 | 1367.1 KB |
+
+### Per-Language Breakdown for `pvad2_e5_conformer_unified` (8 Languages)
+
+| Language | Unseen Test Speakers | Eval Mixtures | Frames | Target Speech AP (`tss`) | Silence AP (`ns`) | Non-Target Speech AP (`ntss`) | Micro mAP |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `de` | 5 | 42 | 5,040 | 0.5843 | 0.8297 | 0.7236 | **0.6937** |
+| `en` | 6 | 54 | 6,048 | 0.6705 | 0.9365 | 0.6970 | **0.7707** |
+| `es` | 5 | 42 | 5,040 | 0.6926 | 0.9542 | 0.6632 | **0.7766** |
+| `fr` | 5 | 42 | 5,040 | 0.5237 | 0.9294 | 0.6177 | **0.6825** |
+| `it` | 5 | 42 | 5,040 | 0.7897 | 0.9620 | 0.8087 | **0.8498** |
+| `nl` | 5 | 42 | 5,040 | 0.7495 | 0.9472 | 0.7659 | **0.8147** |
+| `pl` | 4 | 37 | 4,032 | 0.7613 | 0.9413 | 0.6880 | **0.7806** |
+| `pt` | 5 | 42 | 5,040 | 0.8458 | 0.9451 | 0.8644 | **0.8723** |
 
 ## Original Paper Reference Benchmarks
 

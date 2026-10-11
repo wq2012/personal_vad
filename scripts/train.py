@@ -65,6 +65,301 @@ def build_loss(loss_config: configs.LossConfig) -> tf.keras.losses.Loss:
   )
 
 
+def warm_start_speaker_conditioning(
+    pvad_model: model_lib.PersonalVadModel,
+    subspace: Optional[dict[str, Any]] = None,
+) -> None:
+  """Initializes speaker-conditioning weights from linear acoustic-subspace.
+
+  When `subspace` (fitted on training speakers only) contains `w_x_v1`,
+  `w_x_v2`, and `w_e_32`, initializes the standard neural weights of
+  `pvad_model` so gradient descent starts in the speaker-discriminative basin
+  using 100% pure log-Mel acoustic features.
+  """
+  if subspace is None or "w_e_32" not in subspace:
+    return
+
+  cfg = pvad_model.config
+  mode = cfg.conditioning_mode
+  backbone = cfg.backbone
+  if mode == configs.ConditioningMode.SC:
+    return
+
+  import numpy as np  # noqa: E402
+
+  dummy = {
+      "features": tf.zeros([1, 4, cfg.feature_dim], dtype=tf.float32),
+      "speaker_embedding": tf.zeros(
+          [1, cfg.speaker_embedding_dim], dtype=tf.float32
+      ),
+      "cosine_score": tf.zeros([1, 4, 1], dtype=tf.float32),
+  }
+  _ = pvad_model(dummy, training=False)
+
+  we = np.asarray(subspace["w_e_32"], dtype=np.float32)
+  we_n = we / (np.std(we, axis=0, keepdims=True) + 1e-5)
+
+  if backbone == configs.BackboneType.LSTM_V1 and "w_x_v1" in subspace:
+    wx = np.asarray(subspace["w_x_v1"], dtype=np.float32)
+    wx_n = wx / (np.std(wx, axis=0, keepdims=True) + 1e-5) * 0.14
+    we_v1 = we_n * 0.28
+    k0, rk0, b0 = pvad_model.lstm_layers[0].get_weights()
+    k1, rk1, b1 = pvad_model.lstm_layers[1].get_weights()
+
+    if mode in (configs.ConditioningMode.ET, configs.ConditioningMode.SET):
+      n_pairs = 24
+      for k in range(n_pairs):
+        u_pos = 2 * k
+        u_neg = 2 * k + 1
+        k0[:, u_pos] = 0.0
+        k0[:, u_neg] = 0.0
+        b0[u_pos] = -1.0
+        b0[u_neg] = -1.0
+        k0[:, 64 + u_pos] = 0.0
+        k0[:, 64 + u_neg] = 0.0
+        b0[64 + u_pos] = 2.4
+        b0[64 + u_neg] = 2.4
+        rk0[:, 64 + u_pos] = 0.0
+        rk0[:, 64 + u_neg] = 0.0
+        rk0[:, 128 + u_pos] = 0.0
+        rk0[:, 128 + u_neg] = 0.0
+        k0[:, 128 + u_pos] = 0.0
+        k0[:, 128 + u_neg] = 0.0
+        k0[:40, 128 + u_pos] = wx_n[:, k]
+        k0[:40, 128 + u_neg] = -wx_n[:, k]
+        b0[128 + u_pos] = 0.0
+        b0[128 + u_neg] = 0.0
+        k0[:, 192 + u_pos] = 0.0
+        k0[:, 192 + u_neg] = 0.0
+        k0[40:296, 192 + u_pos] = we_v1[:, k]
+        k0[40:296, 192 + u_neg] = -we_v1[:, k]
+        b0[192 + u_pos] = 0.0
+        b0[192 + u_neg] = 0.0
+        rk0[:, 192 + u_pos] = 0.0
+        rk0[:, 192 + u_neg] = 0.0
+        k1[u_pos, 128 + k] = 2.5
+        k1[u_neg, 128 + k] = 2.5
+        b1[64 + k] = 2.0
+
+      if mode == configs.ConditioningMode.SET and k0.shape[0] >= 297:
+        k0[296, 128 + 48] = 2.0
+        b0[64 + 48] = 2.2
+        k1[48, 128 + 24] = 2.0
+      pvad_model.lstm_layers[0].set_weights([k0, rk0, b0])
+      pvad_model.lstm_layers[1].set_weights([k1, rk1, b1])
+
+    elif mode == configs.ConditioningMode.ST and k0.shape[0] >= 41:
+      f_biases = [0.8, 1.8, 2.6, 3.2]
+      for k, fb in enumerate(f_biases):
+        k0[40, 128 + k] = 2.0
+        b0[64 + k] = fb
+        k1[k, 128 + k] = 2.0
+        b1[64 + k] = 1.8
+      pvad_model.lstm_layers[0].set_weights([k0, rk0, b0])
+      pvad_model.lstm_layers[1].set_weights([k1, rk1, b1])
+
+  elif backbone == configs.BackboneType.LSTM_V2 and "w_x_v2" in subspace:
+    if mode == configs.ConditioningMode.CONCAT and pvad_model.input_proj:
+      wx = np.asarray(subspace["w_x_v2"], dtype=np.float32)
+      wx_n = wx / (np.std(wx, axis=0, keepdims=True) + 1e-5) * 0.045
+      we_v2 = we_n * 0.18
+      w_in, b_in = pvad_model.input_proj.get_weights()
+      w_in[:512, 0:32] = wx_n
+      w_in[512:768, 0:32] = we_v2
+      w_in[:512, 32:64] = -wx_n
+      w_in[512:768, 32:64] = -we_v2
+      w_in[:512, 64:96] = wx_n
+      w_in[512:768, 64:96] = -we_v2
+      w_in[:512, 96:128] = -wx_n
+      w_in[512:768, 96:128] = we_v2
+      w_in[512:768, 128:] = 0.0
+      b_in[:128] = 0.0
+      pvad_model.input_proj.set_weights([w_in, b_in])
+
+      k0, rk0, b0 = pvad_model.lstm_layers[0].get_weights()
+      for k in range(32):
+        k0[:, 512 + k] = 0.0
+        k0[k, 512 + k] = 1.2
+        k0[32 + k, 512 + k] = 1.2
+        k0[64 + k, 512 + k] = -1.2
+        k0[96 + k, 512 + k] = -1.2
+        b0[256 + k] = 2.2
+      pvad_model.lstm_layers[0].set_weights([k0, rk0, b0])
+
+  elif backbone == configs.BackboneType.CONFORMER and "w_x_v2" in subspace:
+    wx = np.asarray(subspace["w_x_v2"], dtype=np.float32)
+    wx_n = wx / (np.std(wx, axis=0, keepdims=True) + 1e-5) * 0.05
+    we_v2 = we_n * 0.22
+
+    if mode == configs.ConditioningMode.CONCAT and pvad_model.input_proj:
+      w_in, b_in = pvad_model.input_proj.get_weights()
+      w_in[:512, 0:24] = wx_n[:, :24]
+      w_in[512:768, 0:24] = 0.0
+      w_in[:512, 24:48] = 0.0
+      w_in[512:768, 24:48] = we_v2[:, :24]
+      w_in[512:768, 48:64] = 0.0
+      b_in[:48] = 0.0
+      pvad_model.input_proj.set_weights([w_in, b_in])
+
+      for ffn in (
+          pvad_model.conformer_blocks[0].ffn1,
+          pvad_model.conformer_blocks[0].ffn2,
+      ):
+        w1, b1 = ffn.dense1.get_weights()
+        w2, b2 = ffn.dense2.get_weights()
+        for k in range(24):
+          w1[:, k] = 0.0
+          w1[:, 24 + k] = 0.0
+          w1[:, 48 + k] = 0.0
+          w1[:, 72 + k] = 0.0
+          w1[k, k] = 1.2
+          w1[24 + k, k] = 1.2
+          w1[k, 24 + k] = -1.2
+          w1[24 + k, 24 + k] = -1.2
+          w1[k, 48 + k] = 1.2
+          w1[24 + k, 48 + k] = -1.2
+          w1[k, 72 + k] = -1.2
+          w1[24 + k, 72 + k] = 1.2
+          b1[k] = 0.0
+          b1[24 + k] = 0.0
+          b1[48 + k] = 0.0
+          b1[72 + k] = 0.0
+          w2[k, k] = 1.2
+          w2[24 + k, k] = 1.2
+          w2[48 + k, k] = -1.2
+          w2[72 + k, k] = -1.2
+        ffn.dense1.set_weights([w1, b1])
+        ffn.dense2.set_weights([w2, b2])
+
+    elif (
+        mode == configs.ConditioningMode.FILM_DVECTOR
+        and pvad_model.input_proj is not None
+        and pvad_model.film_layer is not None
+    ):
+      w_in, b_in = pvad_model.input_proj.get_weights()
+      w_in[:, :32] = wx_n[:, :32]
+      b_in[:32] = 0.0
+      pvad_model.input_proj.set_weights([w_in, b_in])
+
+      sc_weights = pvad_model.film_layer.fc_scale.get_weights()
+      bi_weights = pvad_model.film_layer.fc_bias.get_weights()
+      w_sc = sc_weights[0]
+      w_sc[:, :32] = we_v2[:, :32] * 1.6
+      w_sc[:, 32:] = 0.0
+      if len(sc_weights) > 1:
+        b_sc = sc_weights[1]
+        b_sc[:32] = 0.0
+        b_sc[32:] = 1.0
+        pvad_model.film_layer.fc_scale.set_weights([w_sc, b_sc])
+      else:
+        pvad_model.film_layer.fc_scale.set_weights([w_sc])
+
+      w_bi = np.zeros_like(bi_weights[0])
+      if len(bi_weights) > 1:
+        pvad_model.film_layer.fc_bias.set_weights(
+            [w_bi, np.zeros_like(bi_weights[1])]
+        )
+      else:
+        pvad_model.film_layer.fc_bias.set_weights([w_bi])
+
+      w_cl, b_cl = pvad_model.classifier.get_weights()
+      w_cl[:32, 0] = 0.45
+      w_cl[:32, 1] = 0.0
+      w_cl[:32, 2] = -0.45
+      pvad_model.classifier.set_weights([w_cl, b_cl])
+
+    elif (
+        mode
+        in (
+            configs.ConditioningMode.FILM_COS,
+            configs.ConditioningMode.CONCAT_COS,
+            configs.ConditioningMode.FILM_DVECTOR_COS,
+        )
+        and pvad_model.speaker_prenet is not None
+    ):
+      w_pin, b_pin = pvad_model.speaker_prenet.input_proj.get_weights()
+      w_pin[:, :32] = wx_n[:, :32] * 1.2
+      b_pin[:32] = 0.0
+      pvad_model.speaker_prenet.input_proj.set_weights([w_pin, b_pin])
+
+      w_pout, b_pout = pvad_model.speaker_prenet.output_proj.get_weights()
+      we_unit = we / (np.linalg.norm(we, axis=0, keepdims=True) + 1e-5)
+      w_pout[:32, :] = we_unit.T * 1.5
+      w_pout[32:, :] *= 0.05
+      b_pout[:] = 0.0
+      pvad_model.speaker_prenet.output_proj.set_weights([w_pout, b_pout])
+
+      if (
+          mode == configs.ConditioningMode.FILM_COS
+          and pvad_model.film_layer is not None
+      ):
+        sc_w = pvad_model.film_layer.fc_scale.get_weights()
+        bi_w = pvad_model.film_layer.fc_bias.get_weights()
+        w_sc = np.zeros_like(sc_w[0])
+        w_bi = np.zeros_like(bi_w[0])
+        w_bi[0, 0] = 2.2
+        w_bi[0, 1] = -2.2
+        if len(sc_w) > 1:
+          pvad_model.film_layer.fc_scale.set_weights(
+              [w_sc, np.ones_like(sc_w[1])]
+          )
+          pvad_model.film_layer.fc_bias.set_weights(
+              [w_bi, np.zeros_like(bi_w[1])]
+          )
+        else:
+          pvad_model.film_layer.fc_scale.set_weights([w_sc])
+          pvad_model.film_layer.fc_bias.set_weights([w_bi])
+        w_cl, b_cl = pvad_model.classifier.get_weights()
+        w_cl[0, 0] = 1.0
+        w_cl[0, 1] = 0.0
+        w_cl[0, 2] = -1.0
+        w_cl[1, 0] = -1.0
+        w_cl[1, 1] = 0.0
+        w_cl[1, 2] = 1.0
+        pvad_model.classifier.set_weights([w_cl, b_cl])
+
+      elif (
+          mode == configs.ConditioningMode.FILM_DVECTOR_COS
+          and pvad_model.film_layer is not None
+          and pvad_model.input_proj is not None
+      ):
+        w_in, b_in = pvad_model.input_proj.get_weights()
+        w_in[:, 2:26] = wx_n[:, :24]
+        b_in[2:26] = 0.0
+        pvad_model.input_proj.set_weights([w_in, b_in])
+
+        sc_w = pvad_model.film_layer.fc_scale.get_weights()
+        bi_w = pvad_model.film_layer.fc_bias.get_weights()
+        w_sc = np.zeros_like(sc_w[0])
+        w_sc[:256, 2:26] = we_v2[:, :24] * 1.5
+        w_bi = np.zeros_like(bi_w[0])
+        w_bi[256, 0] = 2.2
+        w_bi[256, 1] = -2.2
+        w_bi[255, 26] = 2.5
+        if len(sc_w) > 1:
+          b_sc = np.ones_like(sc_w[1])
+          b_sc[2:26] = 0.0
+          b_bi = np.zeros_like(bi_w[1])
+          b_bi[26] = -1.0
+          pvad_model.film_layer.fc_scale.set_weights([w_sc, b_sc])
+          pvad_model.film_layer.fc_bias.set_weights([w_bi, b_bi])
+        else:
+          pvad_model.film_layer.fc_scale.set_weights([w_sc])
+          pvad_model.film_layer.fc_bias.set_weights([w_bi])
+
+        w_cl, b_cl = pvad_model.classifier.get_weights()
+        w_cl[0, 0] = 1.0
+        w_cl[0, 1] = 0.0
+        w_cl[0, 2] = -1.0
+        w_cl[1, 0] = -1.0
+        w_cl[1, 1] = 0.0
+        w_cl[1, 2] = 1.0
+        w_cl[2:26, 0] = 0.35
+        w_cl[2:26, 1] = 0.0
+        w_cl[2:26, 2] = -0.35
+        pvad_model.classifier.set_weights([w_cl, b_cl])
+
+
 def train_model(
     pvad_model: model_lib.PersonalVadModel,
     train_dataset: tf.data.Dataset,
@@ -72,6 +367,8 @@ def train_model(
     epochs: int = 5,
     learning_rate: float = 5e-5,
     checkpoint_dir: Optional[str] = None,
+    subspace: Optional[dict[str, Any]] = None,
+    val_dataset: Optional[tf.data.Dataset] = None,
 ) -> list[float]:
   """Runs the training loop and returns a list of per-epoch mean losses.
 
@@ -82,6 +379,8 @@ def train_model(
     epochs: Number of training epochs.
     learning_rate: Learning rate for Adam optimizer (`5e-5` in PVAD 1.0).
     checkpoint_dir: Optional directory to save model weights and config JSON.
+    subspace: Optional speaker subspace dict for warm-starting conditioning.
+    val_dataset: Optional validation `tf.data.Dataset` for best-epoch selection.
 
   Returns:
     List of measured mean training loss values for each completed epoch.
@@ -92,6 +391,9 @@ def train_model(
   for b_in, _, _ in train_dataset.take(1):
     _ = pvad_model(b_in, training=False)
 
+  if subspace is not None:
+    warm_start_speaker_conditioning(pvad_model, subspace)
+
   @tf.function
   def _train_step(
       batch_inputs: dict[str, tf.Tensor],
@@ -99,23 +401,19 @@ def train_model(
       batch_mask: tf.Tensor,
   ) -> tf.Tensor:
     with tf.GradientTape() as tape:
-      logits = pvad_model(batch_inputs, training=True)
-      loss_val = loss_fn.compute_loss(
-          logits=logits, labels=batch_labels, mask=batch_mask
-      )
       if uses_prenet and pvad_model.speaker_prenet is not None:
-        cos_sim = tf.squeeze(
-            pvad_model.speaker_prenet(
-                batch_inputs["features"],
-                batch_inputs["speaker_embedding"],
-                training=True,
-            ),
-            axis=-1,
+        logits, cos_sim_3d, _ = pvad_model.call_with_prenet(
+            batch_inputs, training=True
         )
+        loss_val = loss_fn.compute_loss(
+            logits=logits, labels=batch_labels, mask=batch_mask
+        )
+        assert cos_sim_3d is not None
+        cos_sim = tf.squeeze(cos_sim_3d, axis=-1)
         target_cos = tf.where(
             tf.equal(batch_labels, 0),
-            1.0,
-            tf.where(tf.equal(batch_labels, 2), -0.2, 0.0),
+            0.85,
+            tf.where(tf.equal(batch_labels, 2), -0.35, 0.0),
         )
         speech_mask = (
             tf.cast(tf.not_equal(batch_labels, 1), tf.float32) * batch_mask
@@ -131,9 +429,28 @@ def train_model(
             tf.square(cos_sim - target_cos) * speech_mask
         ) / tf.maximum(tf.reduce_sum(speech_mask), 1.0)
         loss_val = loss_val + 0.8 * prenet_loss
+      else:
+        logits = pvad_model(batch_inputs, training=True)
+        loss_val = loss_fn.compute_loss(
+            logits=logits, labels=batch_labels, mask=batch_mask
+        )
     grads = tape.gradient(loss_val, pvad_model.trainable_variables)
     optimizer.apply_gradients(zip(grads, pvad_model.trainable_variables))
     return loss_val
+
+  @tf.function
+  def _val_step(
+      batch_inputs: dict[str, tf.Tensor],
+      batch_labels: tf.Tensor,
+      batch_mask: tf.Tensor,
+  ) -> tf.Tensor:
+    logits = pvad_model(batch_inputs, training=False)
+    return loss_fn.compute_loss(
+        logits=logits, labels=batch_labels, mask=batch_mask
+    )
+
+  best_val_loss = float("inf")
+  best_weights = None
 
   for _ in range(epochs):
     batch_losses = []
@@ -145,6 +462,23 @@ def train_model(
         sum(batch_losses) / float(len(batch_losses)) if batch_losses else 0.0
     )
     epoch_losses.append(mean_epoch_loss)
+
+    if val_dataset is not None:
+      val_losses = [
+          float(_val_step(b_in, b_lbl, b_msk).numpy())
+          for b_in, b_lbl, b_msk in val_dataset
+      ]
+      mean_val = (
+          sum(val_losses) / float(len(val_losses))
+          if val_losses
+          else mean_epoch_loss
+      )
+      if mean_val <= best_val_loss:
+        best_val_loss = mean_val
+        best_weights = [w.copy() for w in pvad_model.get_weights()]
+
+  if best_weights is not None:
+    pvad_model.set_weights(best_weights)
 
   if checkpoint_dir is not None:
     save_checkpoint(pvad_model, checkpoint_dir)
@@ -287,6 +621,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
       help="Probability p_0 of enrollment-less conditioning during training.",
   )
   parser.add_argument(
+      "--dev_npz",
+      type=str,
+      default=None,
+      help="Optional path to validation dataset .npz file for best checkpoint.",
+  )
+  parser.add_argument(
+      "--subspace_npz",
+      type=str,
+      default=None,
+      help="Optional path to speaker_subspace.npz for warm-starting weights.",
+  )
+  parser.add_argument(
       "--seed",
       type=int,
       default=42,
@@ -323,6 +669,23 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
       enrollment_less_prob=args.enrollment_less_prob,
       seed=args.seed,
   )
+  val_ds = None
+  if args.dev_npz is not None and os.path.exists(args.dev_npz):
+    dev_utts = prepare_dataset.load_utterances_from_npz(args.dev_npz)
+    val_ds = dataset.create_tf_dataset(
+        dev_utts,
+        batch_size=args.batch_size,
+        shuffle=False,
+        enrollment_less_prob=0.0,
+        seed=args.seed,
+    )
+  subspace = None
+  if args.subspace_npz is not None and os.path.exists(args.subspace_npz):
+    import numpy as np  # noqa: E402
+
+    with np.load(args.subspace_npz, allow_pickle=False) as data:
+      subspace = {k: data[k] for k in data.files}
+
   train_model(
       pvad_model=pvad_model,
       train_dataset=train_ds,
@@ -330,6 +693,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
       epochs=args.epochs,
       learning_rate=args.learning_rate,
       checkpoint_dir=args.checkpoint_dir,
+      subspace=subspace,
+      val_dataset=val_ds,
   )
 
 

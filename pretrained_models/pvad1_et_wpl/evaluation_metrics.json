@@ -3,146 +3,398 @@
   "backbone": "lstm_v1",
   "conditioning_mode": "et",
   "loss_type": "weighted_pairwise",
-  "final_train_loss": 0.036155367037281394,
+  "final_train_loss": 0.13546248118985782,
   "artifacts": {
     "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model.weights.h5",
     "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model.safetensors",
     "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_config.json",
     "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_fp32.tflite",
     "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad1_et_wpl/model_quantized.tflite",
-    "fp32_size_kb": 627.24,
-    "quant_size_kb": 262.38,
+    "fp32_size_kb": 630.22,
+    "quant_size_kb": 265.37,
     "safetensors_size_kb": 507.75,
     "num_parameters": 129795
   },
   "evaluations": {
     "personal_vad_concat": {
       "eval_mode": "personal_vad",
-      "num_frames": 23310,
-      "overall_accuracy": 0.8166023166023166,
+      "num_frames": 120240,
+      "overall_accuracy": 0.7683965402528277,
       "class_accuracies": {
-        "Speech (tss)": 0.7375080076873799,
-        "Silence (ns)": 0.9679690249912003,
-        "Non-Target Speech (ntss)": 0.8414396887159533
+        "Speech (tss)": 0.7342694979939328,
+        "Silence (ns)": 0.894547264847136,
+        "Non-Target Speech (ntss)": 0.7039764685067232
       },
       "average_precisions": {
-        "Speech (tss)": 0.9432276747432643,
-        "Silence (ns)": 0.943313510504849,
-        "Non-Target Speech (ntss)": 0.7695418970001937
+        "Speech (tss)": 0.8215310047842757,
+        "Silence (ns)": 0.8946683920249469,
+        "Non-Target Speech (ntss)": 0.8358091084282737
       },
-      "mean_average_precision_micro": 0.8651860129759977,
+      "mean_average_precision_micro": 0.846324837618931,
       "roc_aucs": {
-        "Speech (tss)": 0.9302780419711147,
-        "Silence (ns)": 0.9874189235837805,
-        "Non-Target Speech (ntss)": 0.9126747118117049
+        "Speech (tss)": 0.8992360959309946,
+        "Silence (ns)": 0.9517087979931691,
+        "Non-Target Speech (ntss)": 0.8845961979121151
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.8467,
-          0.8853
+          0.8321,
+          0.8604
+        ],
+        "tss_ap_95_ci": [
+          0.7924,
+          0.8506
+        ],
+        "ns_ap_95_ci": [
+          0.8837,
+          0.9048
+        ],
+        "ntss_ap_95_ci": [
+          0.8126,
+          0.857
         ]
       }
     },
     "personal_vad_non_concat": {
       "eval_mode": "personal_vad",
-      "num_frames": 11655,
-      "overall_accuracy": 0.8178464178464179,
+      "num_frames": 60120,
+      "overall_accuracy": 0.7344477711244178,
       "class_accuracies": {
-        "Speech (tss)": 0.7436651583710407,
-        "Silence (ns)": 0.9693769799366421,
-        "Non-Target Speech (ntss)": 0.794492489758762
+        "Speech (tss)": 0.7097615499254843,
+        "Silence (ns)": 0.8997305845144664,
+        "Non-Target Speech (ntss)": 0.6282098822656902
       },
       "average_precisions": {
-        "Speech (tss)": 0.8767770465389643,
-        "Silence (ns)": 0.9399612417653818,
-        "Non-Target Speech (ntss)": 0.8557404666122287
+        "Speech (tss)": 0.7860946297654609,
+        "Silence (ns)": 0.9004972235747093,
+        "Non-Target Speech (ntss)": 0.7931642982573769
       },
-      "mean_average_precision_micro": 0.8836323663787015,
+      "mean_average_precision_micro": 0.823977942488183,
       "roc_aucs": {
-        "Speech (tss)": 0.9116136365768466,
-        "Silence (ns)": 0.9871051078940921,
-        "Non-Target Speech (ntss)": 0.907873255193868
+        "Speech (tss)": 0.8688314166556896,
+        "Silence (ns)": 0.9545489135733154,
+        "Non-Target Speech (ntss)": 0.8702682194872713
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 360,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.8588,
-          0.9063
+          0.8023,
+          0.8448
+        ],
+        "tss_ap_95_ci": [
+          0.7336,
+          0.8283
+        ],
+        "ns_ap_95_ci": [
+          0.8861,
+          0.9144
+        ],
+        "ntss_ap_95_ci": [
+          0.7477,
+          0.8313
+        ]
+      }
+    },
+    "personal_vad_concat_mtr": {
+      "eval_mode": "personal_vad",
+      "num_frames": 120240,
+      "overall_accuracy": 0.5736859614105123,
+      "class_accuracies": {
+        "Speech (tss)": 0.43201389568450926,
+        "Silence (ns)": 0.8167096169614618,
+        "Non-Target Speech (ntss)": 0.5182236376503893
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.6449581998805932,
+        "Silence (ns)": 0.6662344976615838,
+        "Non-Target Speech (ntss)": 0.635606709357236
+      },
+      "mean_average_precision_micro": 0.6438369924901883,
+      "roc_aucs": {
+        "Speech (tss)": 0.7485987723832692,
+        "Silence (ns)": 0.834535195420721,
+        "Non-Target Speech (ntss)": 0.7314357564048484
+      },
+      "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 1000,
+        "mAP_micro_95_ci": [
+          0.6224,
+          0.6659
+        ],
+        "tss_ap_95_ci": [
+          0.6077,
+          0.6771
+        ],
+        "ns_ap_95_ci": [
+          0.6446,
+          0.6888
+        ],
+        "ntss_ap_95_ci": [
+          0.6074,
+          0.6654
+        ]
+      }
+    },
+    "personal_vad_concat_tflite_fp32": {
+      "eval_mode": "personal_vad",
+      "num_frames": 120240,
+      "overall_accuracy": 0.7683965402528277,
+      "class_accuracies": {
+        "Speech (tss)": 0.7342694979939328,
+        "Silence (ns)": 0.894547264847136,
+        "Non-Target Speech (ntss)": 0.7039764685067232
+      },
+      "average_precisions": {
+        "Speech (tss)": 0.8215310842018715,
+        "Silence (ns)": 0.8946684170608454,
+        "Non-Target Speech (ntss)": 0.8358091399261762
+      },
+      "mean_average_precision_micro": 0.8463248453211915,
+      "roc_aucs": {
+        "Speech (tss)": 0.8992360769734026,
+        "Silence (ns)": 0.9517087954420357,
+        "Non-Target Speech (ntss)": 0.884596189068519
+      },
+      "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 200,
+        "mAP_micro_95_ci": [
+          0.8318,
+          0.8604
+        ],
+        "tss_ap_95_ci": [
+          0.793,
+          0.8465
+        ],
+        "ns_ap_95_ci": [
+          0.8837,
+          0.9044
+        ],
+        "ntss_ap_95_ci": [
+          0.8115,
+          0.8573
         ]
       }
     },
     "personal_vad_concat_tflite_quant": {
       "eval_mode": "personal_vad",
-      "num_frames": 23310,
-      "overall_accuracy": 0.8189189189189189,
+      "num_frames": 120240,
+      "overall_accuracy": 0.768920492348636,
       "class_accuracies": {
-        "Speech (tss)": 0.7549647661755285,
-        "Silence (ns)": 0.9723688841957058,
-        "Non-Target Speech (ntss)": 0.8046692607003891
+        "Speech (tss)": 0.7359819943242979,
+        "Silence (ns)": 0.8937565889656788,
+        "Non-Target Speech (ntss)": 0.7044187898089171
       },
       "average_precisions": {
-        "Speech (tss)": 0.936761906521612,
-        "Silence (ns)": 0.9344043409148033,
-        "Non-Target Speech (ntss)": 0.7431960133108336
+        "Speech (tss)": 0.821373469114463,
+        "Silence (ns)": 0.8945728775411106,
+        "Non-Target Speech (ntss)": 0.8357174979926583
       },
-      "mean_average_precision_micro": 0.8691027783455731,
+      "mean_average_precision_micro": 0.8463918596748736,
       "roc_aucs": {
-        "Speech (tss)": 0.9256162463738243,
-        "Silence (ns)": 0.9861325063874335,
-        "Non-Target Speech (ntss)": 0.8999072797123577
+        "Speech (tss)": 0.8987183118390283,
+        "Silence (ns)": 0.9517473102453399,
+        "Non-Target Speech (ntss)": 0.8845913622337714
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 200,
         "mAP_micro_95_ci": [
-          0.8521,
-          0.888
+          0.8314,
+          0.8602
+        ],
+        "tss_ap_95_ci": [
+          0.7941,
+          0.8468
+        ],
+        "ns_ap_95_ci": [
+          0.8837,
+          0.9043
+        ],
+        "ntss_ap_95_ci": [
+          0.8119,
+          0.8574
         ]
       }
     },
     "std_vad_non_concat": {
       "eval_mode": "personal_vad_std_eval",
-      "num_frames": 11655,
-      "overall_accuracy": 0.8608322608322608,
+      "num_frames": 60120,
+      "overall_accuracy": 0.8728875582168996,
       "class_accuracies": {
-        "Speech": 0.8219877467665079,
-        "Silence": 0.9813445969728969
+        "Speech": 0.8516470752218557,
+        "Silence": 0.9264378587325759
       },
       "average_precisions": {
-        "Speech": 0.9430070699741834,
-        "Silence": 0.9399612417653818
+        "Speech": 0.9644303792626314,
+        "Silence": 0.9077193504810264
       },
-      "mean_average_precision_micro": 0.8859844922187339,
+      "mean_average_precision_micro": 0.9179210773289851,
       "roc_aucs": {
-        "Speech": 0.8269088400289866,
-        "Silence": 0.9871051078940921
+        "Speech": 0.9202842790290601,
+        "Silence": 0.9585950583190761
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 360,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.8689,
-          0.9026
+          0.9066,
+          0.9291
         ]
       }
     },
     "std_vad_concat": {
       "eval_mode": "personal_vad_std_eval",
-      "num_frames": 23310,
-      "overall_accuracy": 0.8844272844272845,
+      "num_frames": 120240,
+      "overall_accuracy": 0.7633566200931471,
       "class_accuracies": {
-        "Speech": 0.8529044701611074,
-        "Silence": 0.9822245688137979
+        "Speech": 0.6902731961157831,
+        "Silence": 0.947610401780485
       },
       "average_precisions": {
-        "Speech": 0.9557943130671311,
-        "Silence": 0.943313510504849
+        "Speech": 0.9188438963809595,
+        "Silence": 0.8946683920249469
       },
-      "mean_average_precision_micro": 0.9093420849445374,
+      "mean_average_precision_micro": 0.8346560344256159,
       "roc_aucs": {
-        "Speech": 0.8592117536922277,
-        "Silence": 0.9874189235837805
+        "Speech": 0.8168788207238643,
+        "Silence": 0.9517087979931691
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.8987,
-          0.9208
+          0.8236,
+          0.8451
         ]
+      }
+    },
+    "std_vad_concat_tss_plus_ntss": {
+      "eval_mode": "personal_vad_std_eval",
+      "num_frames": 120240,
+      "overall_accuracy": 0.8814620758483034,
+      "class_accuracies": {
+        "Speech": 0.8812781675416996,
+        "Silence": 0.8819257350357268
+      },
+      "average_precisions": {
+        "Speech": 0.9795214046202372,
+        "Silence": 0.8946683920249469
+      },
+      "mean_average_precision_micro": 0.9574997054701252,
+      "roc_aucs": {
+        "Speech": 0.9517087986734716,
+        "Silence": 0.9517087979931691
+      },
+      "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 1000,
+        "mAP_micro_95_ci": [
+          0.9532,
+          0.9618
+        ]
+      }
+    },
+    "per_language_concat": {
+      "de": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.8476,
+          "Silence (ns)": 0.8166,
+          "Non-Target Speech (ntss)": 0.8115
+        },
+        "mean_average_precision_micro": 0.8173
+      },
+      "en": {
+        "num_speakers": 6,
+        "num_eval_mixtures": 54,
+        "num_frames": 18036,
+        "average_precisions": {
+          "Speech (tss)": 0.8082,
+          "Silence (ns)": 0.8824,
+          "Non-Target Speech (ntss)": 0.8016
+        },
+        "mean_average_precision_micro": 0.8092
+      },
+      "es": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.674,
+          "Silence (ns)": 0.9466,
+          "Non-Target Speech (ntss)": 0.7372
+        },
+        "mean_average_precision_micro": 0.7909
+      },
+      "fr": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.7036,
+          "Silence (ns)": 0.9011,
+          "Non-Target Speech (ntss)": 0.7521
+        },
+        "mean_average_precision_micro": 0.787
+      },
+      "it": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.8853,
+          "Silence (ns)": 0.9495,
+          "Non-Target Speech (ntss)": 0.8959
+        },
+        "mean_average_precision_micro": 0.9093
+      },
+      "nl": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.8287,
+          "Silence (ns)": 0.9264,
+          "Non-Target Speech (ntss)": 0.8379
+        },
+        "mean_average_precision_micro": 0.8721
+      },
+      "pl": {
+        "num_speakers": 4,
+        "num_eval_mixtures": 37,
+        "num_frames": 12024,
+        "average_precisions": {
+          "Speech (tss)": 0.8831,
+          "Silence (ns)": 0.9357,
+          "Non-Target Speech (ntss)": 0.8353
+        },
+        "mean_average_precision_micro": 0.8611
+      },
+      "pt": {
+        "num_speakers": 5,
+        "num_eval_mixtures": 42,
+        "num_frames": 15030,
+        "average_precisions": {
+          "Speech (tss)": 0.9282,
+          "Silence (ns)": 0.9021,
+          "Non-Target Speech (ntss)": 0.9114
+        },
+        "mean_average_precision_micro": 0.8964
       }
     }
   }

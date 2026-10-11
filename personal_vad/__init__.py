@@ -5,7 +5,7 @@ from . import dataset
 from . import eval_lib
 from . import online_percentile
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 FrameLabel = configs.FrameLabel
 ConditioningMode = configs.ConditioningMode
@@ -21,6 +21,7 @@ concat_utterance_sequence = dataset.concat_utterance_sequence
 concat_utterance_group = dataset.concat_utterance_group
 convert_alignment_for_vad_baseline = dataset.convert_alignment_for_vad_baseline
 apply_enrollment_less_conditioning = dataset.apply_enrollment_less_conditioning
+apply_mtr_augmentation = dataset.apply_mtr_augmentation
 use_true_speaker_embedding_for_utterance = (
     dataset.use_true_speaker_embedding_for_utterance
 )

@@ -354,6 +354,55 @@ class PersonalVadModel(tf.keras.Model):
     )
     return self.classifier(x)
 
+  def call_with_prenet(
+      self,
+      inputs: Any,
+      training: bool = False,
+      speaker_embedding: Optional[tf.Tensor] = None,
+      cosine_score: Optional[tf.Tensor] = None,
+  ) -> tuple[tf.Tensor, Optional[tf.Tensor], Optional[tf.Tensor]]:
+    """Computes `(logits, prenet_cosine_sim, prenet_embeddings)` in one pass."""
+    features, spk_emb, cos_score = self._unpack_inputs(
+        inputs, speaker_embedding=speaker_embedding, cosine_score=cosine_score
+    )
+    if not self._uses_prenet() or self.speaker_prenet is None:
+      logits = self(
+          inputs,
+          training=training,
+          speaker_embedding=speaker_embedding,
+          cosine_score=cosine_score,
+      )
+      return logits, None, None
+
+    x = self._prepare_backbone_input(features, spk_emb, cos_score)
+    assert self.input_proj is not None
+    x = self.input_proj(x)
+    for block in self.conformer_blocks:
+      x = block(x, training=training)
+
+    if spk_emb is None:
+      raise ValueError("speaker_embedding is required for Pre-Net modes.")
+    norm_emb = layers.safe_l2_normalize(spk_emb, axis=-1)
+    cos_sim, prenet_embs = self.speaker_prenet(
+        features, norm_emb, training=training, return_embeddings=True
+    )
+    mode = self.config.conditioning_mode
+    if mode == configs.ConditioningMode.FILM_COS:
+      assert self.film_layer is not None
+      x = self.film_layer(x, cos_sim)
+    elif mode == configs.ConditioningMode.CONCAT_COS:
+      x = tf.concat([x, cos_sim], axis=-1)
+    elif mode == configs.ConditioningMode.FILM_DVECTOR_COS:
+      assert self.film_layer is not None
+      seq_len = tf.shape(x)[1]
+      tiled_emb = (
+          tf.tile(tf.expand_dims(norm_emb, axis=1), [1, seq_len, 1])
+          if norm_emb.shape.rank == 2
+          else norm_emb
+      )
+      x = self.film_layer(x, tf.concat([tiled_emb, cos_sim], axis=-1))
+    return self.classifier(x), cos_sim, prenet_embs
+
   def predict_proba(
       self,
       inputs: Union[
@@ -397,6 +446,94 @@ class PersonalVadModel(tf.keras.Model):
     if self.speaker_prenet is not None:
       state["prenet"] = self.speaker_prenet.init_cache(batch_size)
 
+    return state
+
+  def streaming_state_shape(self, batch_size: int = 1) -> list[int]:
+    """Returns the 4-D tensor shape of the packed streaming state."""
+    cfg = self.config
+    if cfg.backbone in (
+        configs.BackboneType.LSTM_V1,
+        configs.BackboneType.LSTM_V2,
+    ):
+      return [batch_size, cfg.lstm_num_layers, 2, cfg.lstm_units]
+    num_blocks = cfg.conformer_num_layers + (
+        cfg.prenet_num_layers if self.speaker_prenet is not None else 0
+    )
+    conv_len = max(cfg.conformer_kernel_size - 1, 0)
+    cache_len = cfg.conformer_left_context + 1 + conv_len
+    max_dim = max(
+        cfg.conformer_dim,
+        cfg.prenet_dim if self.speaker_prenet is not None else 0,
+    )
+    return [batch_size, num_blocks, cache_len, max_dim]
+
+  def pack_streaming_state(self, state: dict[str, Any]) -> tf.Tensor:
+    """Packs `state` dictionary into a single 4-D float32 tensor."""
+    cfg = self.config
+    if cfg.backbone in (
+        configs.BackboneType.LSTM_V1,
+        configs.BackboneType.LSTM_V2,
+    ):
+      layers_packed = [
+          tf.stack([h, c], axis=1) for h, c in state["lstm"]
+      ]
+      return tf.stack(layers_packed, axis=1)
+
+    max_dim = max(
+        cfg.conformer_dim,
+        cfg.prenet_dim if self.speaker_prenet is not None else 0,
+    )
+    all_caches = list(state["conformer"])
+    if self.speaker_prenet is not None and "prenet" in state:
+      all_caches.extend(state["prenet"])
+
+    packed_blocks = []
+    for attn_c, valid_c, conv_c in all_caches:
+      dim = attn_c.shape[-1]
+      valid_row = tf.tile(
+          tf.expand_dims(tf.cast(valid_c, tf.float32), axis=-1),
+          [1, 1, dim],
+      )
+      blk = tf.concat([attn_c, valid_row, conv_c], axis=1)
+      if dim < max_dim:
+        blk = tf.pad(blk, [[0, 0], [0, 0], [0, max_dim - dim]])
+      packed_blocks.append(blk)
+    return tf.stack(packed_blocks, axis=1)
+
+  def unpack_streaming_state(self, state_tensor: tf.Tensor) -> dict[str, Any]:
+    """Unpacks a 4-D float32 `state_tensor` into a `state` dictionary."""
+    cfg = self.config
+    state: dict[str, Any] = {}
+    if cfg.backbone in (
+        configs.BackboneType.LSTM_V1,
+        configs.BackboneType.LSTM_V2,
+    ):
+      state["lstm"] = [
+          (state_tensor[:, i, 0, :], state_tensor[:, i, 1, :])
+          for i in range(cfg.lstm_num_layers)
+      ]
+      return state
+
+    left = cfg.conformer_left_context
+    conformer_caches = []
+    for i in range(cfg.conformer_num_layers):
+      blk = state_tensor[:, i, :, : cfg.conformer_dim]
+      attn_c = blk[:, :left, :]
+      valid_c = tf.cast(tf.round(blk[:, left, 0:1]), tf.int32)
+      conv_c = blk[:, left + 1:, :]
+      conformer_caches.append((attn_c, valid_c, conv_c))
+    state["conformer"] = conformer_caches
+
+    if self.speaker_prenet is not None:
+      prenet_caches = []
+      for j in range(cfg.prenet_num_layers):
+        idx = cfg.conformer_num_layers + j
+        blk = state_tensor[:, idx, :, : cfg.prenet_dim]
+        attn_c = blk[:, :left, :]
+        valid_c = tf.cast(tf.round(blk[:, left, 0:1]), tf.int32)
+        conv_c = blk[:, left + 1:, :]
+        prenet_caches.append((attn_c, valid_c, conv_c))
+      state["prenet"] = prenet_caches
     return state
 
   def _run_lstm_step(

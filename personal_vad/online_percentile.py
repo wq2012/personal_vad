@@ -58,8 +58,14 @@ class OnlinePercentileValue:
     Args:
       x: A scalar float, list of floats, or NumPy array of observations.
     """
-    hist, _ = np.histogram(x, bins=self.bins, range=self.hist_range)
-    self.counts += hist
+    arr = np.asarray(x, dtype=np.float64).reshape(-1)
+    lo, hi = self.hist_range
+    valid = arr[(arr >= lo) & (arr <= hi)]
+    if valid.size == 0:
+      return
+    idx = np.floor((valid - lo) / (hi - lo) * self.bins).astype(np.int64)
+    idx = np.clip(idx, 0, self.bins - 1)
+    np.add.at(self.counts, idx, 1)
 
   def get_percentile_value(self, percentile: float) -> float:
     """Returns the estimated value at the requested percentile.
@@ -94,11 +100,15 @@ def rescale_cosine_scores(
     hist_range: tuple[float, float] = (-1.0, 1.0),
     low_percentile: float = 5.0,
     high_percentile: float = 95.0,
+    causal: bool = True,
 ) -> np.ndarray:
   """Rescales cosine similarity scores to `[0, 1]` using online percentiles.
 
-  Implements the score rescaling in Section 2.1 of Personal VAD
-  (arXiv:1908.04284).
+  Implements the online score rescaling in Section 2.1 of Personal VAD
+  (arXiv:1908.04284). When `causal=True` (default), the histogram is updated
+  frame-by-frame so each frame `t` only depends on observations up to frame `t`
+  (seeded with a two-point prior at `-0.35` and `+0.55` so the initial frames
+  have a non-degenerate dynamic range).
 
   Args:
     cosine_scores: NumPy array of cosine similarity scores in `[-1, 1]`.
@@ -106,16 +116,34 @@ def rescale_cosine_scores(
     hist_range: Histogram range (default `(-1.0, 1.0)`).
     low_percentile: Lower percentile mapped to 0.0 (default 5.0).
     high_percentile: Upper percentile mapped to 1.0 (default 95.0).
+    causal: If True, updates percentiles causally frame-by-frame.
 
   Returns:
     Rescaled scores clipped to `[0.0, 1.0]` with the same shape as
     `cosine_scores`.
   """
   scores = np.asarray(cosine_scores, dtype=np.float32)
+  orig_shape = scores.shape
+  flat = scores.reshape(-1)
+  if flat.size == 0:
+    return scores.copy()
+
   opv = OnlinePercentileValue(bins=bins, hist_range=hist_range)
-  opv.observe(scores)
-  p_low = opv.get_percentile_value(low_percentile)
-  p_high = opv.get_percentile_value(high_percentile)
-  denom = max(p_high - p_low, 1e-6)
-  rescaled = (scores - p_low) / denom
-  return np.clip(rescaled, 0.0, 1.0)
+  if not causal:
+    opv.observe(flat)
+    p_low = opv.get_percentile_value(low_percentile)
+    p_high = opv.get_percentile_value(high_percentile)
+    denom = max(p_high - p_low, 1e-6)
+    return np.clip((scores - p_low) / denom, 0.0, 1.0).astype(np.float32)
+
+  # Seed with two anchor points so t=0 has a well-calibrated initial range
+  opv.observe([-0.35, 0.55])
+  out = np.zeros_like(flat, dtype=np.float32)
+  for t in range(flat.size):
+    val = float(flat[t])
+    opv.observe(val)
+    p_low = opv.get_percentile_value(low_percentile)
+    p_high = opv.get_percentile_value(high_percentile)
+    denom = max(p_high - p_low, 1e-2)
+    out[t] = np.clip((val - p_low) / denom, 0.0, 1.0)
+  return out.reshape(orig_shape)

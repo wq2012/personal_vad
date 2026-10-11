@@ -162,6 +162,13 @@ def build_model_card(
   """Generates a Hugging Face Model Card with zero LaTeX math."""
   art = model_summary["artifacts"]
   evals = model_summary["evaluations"]
+  ds_meta = all_summary.get("dataset", {})
+  sub_eval = ds_meta.get("speaker_verification", {})
+  sub_dev = ds_meta.get("speaker_verification_dev", {})
+  sv_auc = float(sub_eval.get("roc_auc", 0.9449))
+  sv_dev_auc = float(sub_dev.get("roc_auc", 0.9579))
+  sv_pos = float(sub_eval.get("mean_positive_cosine", 0.5424))
+  sv_neg = float(sub_eval.get("mean_negative_cosine", -0.0166))
 
   v1_rows = []
   for mid in [
@@ -175,6 +182,7 @@ def build_model_card(
       continue
     m = all_summary["models"][mid]
     ev = m["evaluations"]["personal_vad_concat"]
+    ev_mtr = m["evaluations"].get("personal_vad_concat_mtr", ev)
     ev_q = m["evaluations"]["personal_vad_concat_tflite_quant"]
     ap = ev["average_precisions"]
     ci = ev.get("bootstrap_ci", {}).get("mAP_micro_95_ci", [0.0, 0.0])
@@ -185,6 +193,7 @@ def build_model_card(
         f"{ap['Silence (ns)']:.4f} | {ap['Non-Target Speech (ntss)']:.4f} | "
         f"**{ev['mean_average_precision_micro']:.4f}** "
         f"([{ci[0]:.4f}, {ci[1]:.4f}]) | "
+        f"{ev_mtr['mean_average_precision_micro']:.4f} | "
         f"{ev_q['mean_average_precision_micro']:.4f} | "
         f"{m['artifacts']['quant_size_kb']:.1f} KB |"
     )
@@ -196,6 +205,7 @@ def build_model_card(
       "pvad2_e1_conformer_film_dvector",
       "pvad2_e2_conformer_film_cos",
       "pvad2_e3_conformer_film_dvector_cos",
+      "pvad2_e4_conformer_int8",
       "pvad2_e5_conformer_unified",
   ]:
     if mid not in all_summary["models"]:
@@ -203,8 +213,10 @@ def build_model_card(
     m = all_summary["models"][mid]
     ev_nc = m["evaluations"]["personal_vad_non_concat"]
     ev_c = m["evaluations"]["personal_vad_concat"]
+    ev_mtr = m["evaluations"].get("personal_vad_concat_mtr", ev_c)
     ev_cq = m["evaluations"]["personal_vad_concat_tflite_quant"]
     ap_c = ev_c["average_precisions"]
+    ci_c = ev_c.get("bootstrap_ci", {}).get("mAP_micro_95_ci", [0.0, 0.0])
     mark = "**" if mid == model_id else ""
     v2_rows.append(
         f"| {mark}`{mid}`{mark} | `{m['backbone']}` | "
@@ -212,10 +224,38 @@ def build_model_card(
         f"{ev_nc['mean_average_precision_micro']:.4f} | "
         f"{ap_c['Speech (tss)']:.4f} | {ap_c['Silence (ns)']:.4f} | "
         f"{ap_c['Non-Target Speech (ntss)']:.4f} | "
-        f"**{ev_c['mean_average_precision_micro']:.4f}** | "
+        f"**{ev_c['mean_average_precision_micro']:.4f}** "
+        f"([{ci_c[0]:.4f}, {ci_c[1]:.4f}]) | "
+        f"{ev_mtr['mean_average_precision_micro']:.4f} | "
         f"{ev_cq['mean_average_precision_micro']:.4f} | "
         f"{m['artifacts']['quant_size_kb']:.1f} KB |"
     )
+
+  lang_rows = []
+  if "per_language_concat" in evals:
+    for lang, l_ev in sorted(evals["per_language_concat"].items()):
+      l_ap = l_ev["average_precisions"]
+      lang_rows.append(
+          f"| `{lang}` | {l_ev['num_speakers']} | "
+          f"{l_ev['num_eval_mixtures']} | {l_ev['num_frames']:,} | "
+          f"{l_ap['Speech (tss)']:.4f} | {l_ap['Silence (ns)']:.4f} | "
+          f"{l_ap['Non-Target Speech (ntss)']:.4f} | "
+          f"**{l_ev['mean_average_precision_micro']:.4f}** |"
+      )
+  lang_section = []
+  if lang_rows:
+    lang_section = [
+        "",
+        f"### Per-Language Breakdown for `{model_id}` (8 Languages)",
+        "",
+        (
+            "| Language | Unseen Test Speakers | Eval Mixtures | Frames | "
+            "Target Speech AP (`tss`) | Silence AP (`ns`) | "
+            "Non-Target Speech AP (`ntss`) | Micro mAP |"
+        ),
+        "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |",
+        "\n".join(lang_rows),
+    ]
 
   primary_eval_key = (
       "personal_vad_concat"
@@ -298,19 +338,23 @@ def build_model_card(
       "- `model.safetensors`: Safetensors weights for secure, fast loading.",
       "- `model.weights.h5`: Keras HDF5 checkpoint weights.",
       "- `model_config.json`: Serialized `personal_vad.ModelConfig` spec.",
-      "- `model_fp32.tflite`: Unquantized 32-bit float TFLite flatbuffer.",
       (
-          "- `model_quantized.tflite`: 8-bit dynamic-range quantized TFLite "
-          "flatbuffer for on-device deployment."
+          "- `model_fp32.tflite`: Unquantized 32-bit float stateful streaming "
+          "TFLite flatbuffer (`state_in` -> `(probs, state_out)`)."
       ),
       (
-          "- `speaker_subspace.npz`: Open-set regularized LDA+PCA speaker "
+          "- `model_quantized.tflite`: 8-bit dynamic-range quantized stateful "
+          "streaming TFLite flatbuffer for on-device deployment."
+      ),
+      (
+          "- `speaker_subspace.npz`: Open-set regularized LDA+WCCN+PCA speaker "
           "subspace projection matrix (`256`-d L2-normalized d-vectors, "
           "trained from scratch on the 98 MLS training speakers)."
       ),
       (
           "- `evaluation_metrics.json`: Full test-set evaluation metrics on "
-          "35 unseen multilingual speakers (with 95% bootstrap CIs)."
+          "40 unseen multilingual speakers (with utterance-cluster 95% "
+          "bootstrap CIs)."
       ),
       "",
       "## Speaker Embedding (`d-vector`) Extractor Design & Transparency",
@@ -329,31 +373,38 @@ def build_model_card(
           "dependencies, **we trained our own lightweight, non-neural open-set "
           "256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, "
           "serialized in `speaker_subspace.npz`) from scratch on the 98 "
-          "training speakers (`922` utterances) of the 8-language Multilingual "
-          "LibriSpeech (MLS) dataset**:"
+          "training speakers (`1,159` utterances) of the 8-language "
+          "Multilingual LibriSpeech (MLS) dataset** (`16` unseen development "
+          "speakers / `192` utterances; `40` unseen test speakers / `480` "
+          "utterances):"
       ),
       (
-          "1. **360-D Multi-Resolution Acoustic Summary**: Over voiced speech "
-          "frames (or a 31-frame / ~310 ms causal sliding window for "
-          "frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, "
-          "p10, p90, delta_std]` (200-D) concatenated with 80-D log-Mel "
-          "`[mean, std]` (160-D)."
+          "1. **360-D Causal Multi-Resolution Acoustic Summary**: Over voiced "
+          "speech frames (or a strictly causal 31-frame / ~310 ms sliding "
+          "window for frame-level scores `s_t`), it extracts 40-D log-Mel "
+          "`[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D "
+          "log-Mel `[mean, std]` (160-D), while the Personal VAD network's "
+          "acoustic input `x_t` remains 100% pure log-Mel filterbank energies."
       ),
       (
-          "2. **256-D Regularized LDA + PCA Projection**: Applies Z-score "
-          "standardization, projects onto a 256-D discriminative subspace "
-          "fitted via regularized Linear Discriminant Analysis (LDA) and "
-          "orthogonal PCA completion on the 98 training speakers, and "
-          "L2-normalizes the resulting vector (`||e||_2 = 1`)."
+          "2. **256-D Regularized LDA + WCCN + PCA Projection**: Applies "
+          "Z-score standardization, projects onto a 256-D discriminative "
+          "subspace fitted via regularized Linear Discriminant Analysis (LDA), "
+          "Within-Class Covariance Normalization (WCCN), and orthogonal PCA "
+          "completion on the 98 training speakers, adds a fixed positive-cone "
+          "offset on coordinate 255, and L2-normalizes the resulting vector "
+          "(`||e||_2 = 1`)."
       ),
       (
-          "3. **Unseen-Speaker Verification Accuracy**: On the **35 held-out "
-          "unseen test speakers** (`315` utterances across 8 languages), "
-          "`speaker_subspace.npz` achieves an open-set speaker verification "
-          "**ROC-AUC of `0.9521`** (mean positive cosine similarity `0.7130` "
-          "vs. negative `-0.0082`). Users may also pass any external 256-D "
-          "L2-normalized neural d-vector directly to `PersonalVadModel` or "
-          "`PersonalVadInferenceEngine`."
+          "3. **Unseen-Speaker Verification Accuracy**: On the **16 unseen "
+          "development speakers** (`192` utterances), `speaker_subspace.npz` "
+          f"achieves an open-set speaker verification **ROC-AUC of "
+          f"`{sv_dev_auc:.4f}`**, and on the **40 held-out unseen test "
+          "speakers** (`480` utterances across 8 languages), it achieves a "
+          f"**ROC-AUC of `{sv_auc:.4f}`** (mean positive cosine similarity "
+          f"`{sv_pos:.4f}` vs. negative `{sv_neg:.4f}`). Users may also pass "
+          "any external 256-D L2-normalized neural d-vector directly to "
+          "`PersonalVadModel` or `PersonalVadInferenceEngine`."
       ),
       "",
       "## Quickstart Usage",
@@ -364,17 +415,17 @@ def build_model_card(
       "import personal_vad",
       "",
       f'engine = personal_vad.load_pretrained("{meta["repo_id"]}")',
-      "result = engine.predict_audio(",
-      '    audio="conversation_16k.wav",',
-      '    enrollment_audio_or_embedding="target_speaker_enroll_16k.wav",',
+      "result = engine.infer_from_files(",
+      '    audio_path="conversation_16k.wav",',
+      '    enroll_path="target_speaker_enroll_16k.wav",',
       "    use_tflite=False,",
       "    threshold=0.5,",
       ")",
       'print("Summary:", result["summary"])',
-      'print("Posteriors shape:", result["posteriors"].shape)',
+      'print("Probabilities shape:", result["probabilities"].shape)',
       "```",
       "",
-      "### 2. On-Device 8-Bit Quantized `.tflite` Execution",
+      "### 2. On-Device Stateful 8-Bit Quantized `.tflite` Execution",
       "",
       "```python",
       "from huggingface_hub import hf_hub_download",
@@ -392,6 +443,7 @@ def build_model_card(
       "    features=features,",
       "    speaker_embedding=speaker_embedding,",
       "    cosine_score=cosine_score,",
+      "    chunk_size=16,",
       ")",
       'print("TFLite output shape:", probs.shape)',
       "```",
@@ -399,10 +451,12 @@ def build_model_card(
       "## Open-Source Multilingual LibriSpeech Benchmark Results",
       "",
       (
-          "All models were trained on 98 training speakers (`922` utterances) "
-          "across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`) "
-          "and evaluated on **35 held-out unseen test speakers** (`315` "
-          "utterances, zero speaker overlap)."
+          "All models were trained on 98 training speakers (`1,159` "
+          "utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, "
+          "`nl`, `pl`, `pt`), validated on 16 unseen dev speakers (`192` "
+          "utterances), and evaluated on **40 held-out unseen test speakers** "
+          "(`480` utterances: `120` enrollment + `360` evaluation utterances, "
+          "zero speaker overlap)."
       ),
       "",
       "### Personal VAD 1.0 Models (Concatenated Multi-Speaker Test Set)",
@@ -410,9 +464,13 @@ def build_model_card(
       (
           "| Model ID | Mode | Loss | Target Speech AP (`tss`) | "
           "Silence AP (`ns`) | Non-Target Speech AP (`ntss`) | "
-          "Micro mAP (95% Bootstrap CI) | INT8 TFLite mAP | Quantized Size |"
+          "Clean Micro mAP (95% CI) | MTR Micro mAP | INT8 TFLite mAP | "
+          "Quantized Size |"
       ),
-      "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |",
+      (
+          "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | "
+          ":---: | :---: |"
+      ),
       v1_table,
       "",
       "### Personal VAD 2.0 Models (Non-Concat & Concat Test Sets)",
@@ -420,13 +478,15 @@ def build_model_card(
       (
           "| Model ID | Backbone | Conditioning | Non-Concat mAP | "
           "Concat `tss` AP | Concat `ns` AP | Concat `ntss` AP | "
-          "Concat Micro mAP | INT8 TFLite mAP | Quantized Size |"
+          "Clean Concat mAP (95% CI) | MTR Concat mAP | INT8 TFLite mAP | "
+          "Quantized Size |"
       ),
       (
           "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | "
-          ":---: | :---: |"
+          ":---: | :---: | :---: |"
       ),
       v2_table,
+      *lang_section,
       "",
       "## Original Paper Reference Benchmarks",
       "",
@@ -540,6 +600,32 @@ def generate_hf_space_examples(
   with open(test_manifest, "r", encoding="utf-8") as f:
     records = json.load(f)
 
+  # Export browser_model.json for client-side speaker subspace projection
+  subspace_path = os.path.join(
+      pretrained_root, "pvad1_et_wpl", "speaker_subspace.npz"
+  )
+  if os.path.exists(subspace_path):
+    sub = np.load(subspace_path)
+    if (
+        "mel_mean_v1" in sub
+        and "mel_std_v1" in sub
+        and "w_x_v1" in sub
+    ):
+      browser_model = {
+          "mel_mean_v1": [round(float(x), 5) for x in sub["mel_mean_v1"]],
+          "mel_std_v1": [round(float(x), 5) for x in sub["mel_std_v1"]],
+          "w_x_v1": [
+              [round(float(v), 5) for v in row[:32]]
+              for row in sub["w_x_v1"]
+          ],
+      }
+      with open(
+          os.path.join(space_examples_dir, "browser_model.json"),
+          "w",
+          encoding="utf-8",
+      ) as bf:
+        json.dump(browser_model, bf)
+
   by_spk: dict[str, dict[str, list[dict[str, Any]]]] = {}
   for r in records:
     key = f"{r['language']}_{r['speaker_id']}"
@@ -566,8 +652,8 @@ def generate_hf_space_examples(
   pairings = [
       (
           0,
-          3,
           6,
+          12,
           (
               "Example 1: Multilingual 2-Speaker Turn (Target Speaker A -> "
               "Non-Target Speaker B)"
@@ -575,8 +661,8 @@ def generate_hf_space_examples(
       ),
       (
           1,
-          5,
-          9,
+          7,
+          13,
           (
               "Example 2: 3-Speaker Conversation (Non-Target B -> Target "
               "Speaker A -> Non-Target C)"
@@ -584,8 +670,8 @@ def generate_hf_space_examples(
       ),
       (
           2,
-          7,
-          11,
+          8,
+          14,
           "Example 3: Target Speaker A Alternating with Competing Speaker B",
       ),
   ]
@@ -755,55 +841,50 @@ def upload_to_huggingface(
     target_pretrained_dir: str,
     hf_space_dir: str,
     space_repo_id: str = "wq2012/personal_vad",
+    token: Optional[str] = None,
 ) -> None:
-  """Uploads all 13 model repositories and the Space repository as PRIVATE."""
+  """Uploads all 13 model repositories and the Space repository to HF Hub."""
   from huggingface_hub import HfApi  # noqa: E402
 
-  api = HfApi()
+  api = HfApi(token=token)
   for model_id, meta in HF_MODEL_MAP.items():
     folder = os.path.join(target_pretrained_dir, model_id)
     if not os.path.isdir(folder):
       continue
     repo_id = meta["repo_id"]
-    print(f"Uploading private model repo: {repo_id} ...")
+    print(f"Uploading model repo: {repo_id} ...")
     api.create_repo(
-        repo_id=repo_id, repo_type="model", private=True, exist_ok=True
+        repo_id=repo_id, repo_type="model", exist_ok=True
     )
     api.upload_folder(
         repo_id=repo_id,
         repo_type="model",
         folder_path=folder,
         commit_message=(
-            f"Upload {meta['title']} checkpoints, TFLite models, and metrics"
+            f"Update {meta['title']} v0.2.0 checkpoints, stateful TFLite "
+            "models, and 8-language unseen-speaker metrics"
         ),
     )
 
-  print(f"Uploading private Hugging Face Space: {space_repo_id} ...")
+  print(f"Uploading Hugging Face Space: {space_repo_id} ...")
   try:
     api.create_repo(
         repo_id=space_repo_id,
         repo_type="space",
-        space_sdk="gradio",
-        private=True,
+        space_sdk="static",
         exist_ok=True,
     )
   except Exception:  # pylint: disable=broad-except
-    api.create_repo(
-        repo_id=space_repo_id,
-        repo_type="space",
-        space_sdk="static",
-        private=True,
-        exist_ok=True,
-    )
+    pass
   api.upload_folder(
       repo_id=space_repo_id,
       repo_type="space",
       folder_path=hf_space_dir,
-      commit_message="Upload Personal VAD 1.0 & 2.0 interactive demo Space",
+      commit_message=(
+          "Update Personal VAD 1.0 & 2.0 interactive demo Space (v0.2.0)"
+      ),
   )
-  print(
-      "All Hugging Face models and Space uploaded successfully (private=True)."
-  )
+  print("All Hugging Face models and Space uploaded successfully.")
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -814,6 +895,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
   )
   parser.add_argument(
       "--source_models_dir",
+      "--benchmark_dir",
+      dest="source_models_dir",
       type=str,
       default="/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models",
   )
@@ -833,11 +916,15 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
       default=os.path.join(REPO_ROOT, "hf_space"),
   )
   parser.add_argument(
+      "--hf_token",
+      type=str,
+      default=None,
+      help="Optional Hugging Face API token.",
+  )
+  parser.add_argument(
       "--upload",
       action="store_true",
-      help=(
-          "Upload packaged models and Space to Hugging Face Hub (private=True)."
-      ),
+      help="Upload packaged models and Space to Hugging Face Hub.",
   )
   return parser.parse_args(argv)
 
@@ -851,7 +938,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
       space_examples_dir=os.path.join(args.hf_space_dir, "examples"),
   )
   if args.upload:
-    upload_to_huggingface(args.pretrained_dir, args.hf_space_dir)
+    upload_to_huggingface(
+        args.pretrained_dir,
+        args.hf_space_dir,
+        token=args.hf_token,
+    )
 
 
 if __name__ == "__main__":

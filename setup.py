@@ -14,7 +14,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fin:
 
 setuptools.setup(
     name="personal-vad",
-    version="0.1.0",
+    version="0.2.0",
     author="Quan Wang, Shaojin Ding, Ignacio Lopez Moreno",
     author_email="quanw@google.com",
     description=(
@@ -25,20 +25,24 @@ setuptools.setup(
     url="https://github.com/wq2012/personal_vad",
     packages=setuptools.find_packages(include=["personal_vad", "scripts"]),
     scripts=[
+        "scripts/download_mls.py",
         "scripts/prepare_dataset.py",
         "scripts/train.py",
         "scripts/evaluate.py",
         "scripts/export_tflite.py",
         "scripts/inference.py",
+        "scripts/run_benchmarks.py",
     ],
     install_requires=DEPENDENCIES,
     entry_points={
         "console_scripts": [
+            "pvad-download-mls=scripts.download_mls:main",
             "pvad-prepare-dataset=scripts.prepare_dataset:main",
             "pvad-train=scripts.train:main",
             "pvad-evaluate=scripts.evaluate:main",
             "pvad-export-tflite=scripts.export_tflite:main",
             "pvad-inference=scripts.inference:main",
+            "pvad-run-benchmarks=scripts.run_benchmarks:main",
         ],
     },
     classifiers=[

@@ -107,14 +107,21 @@ class PersonalVadEvaluator:
       vs `silence=1`).
   """
 
-  def __init__(self, eval_mode: str = "personal_vad"):
+  def __init__(
+      self,
+      eval_mode: str = "personal_vad",
+      speech_score_mode: str = "tss",
+  ):
     if eval_mode not in (
         "personal_vad",
         "personal_vad_std_eval",
         "std_vad_std_eval",
     ):
       raise ValueError(f"Unsupported eval_mode: {eval_mode}")
+    if speech_score_mode not in ("tss", "tss_plus_ntss"):
+      raise ValueError(f"Unsupported speech_score_mode: {speech_score_mode}")
     self.eval_mode = eval_mode
+    self.speech_score_mode = speech_score_mode
     if eval_mode == "personal_vad":
       self.classes = [0, 1, 2]
       self.class_names = list(PERSONAL_VAD_CLASS_NAMES)
@@ -139,9 +146,13 @@ class PersonalVadEvaluator:
 
     if self.eval_mode in ("personal_vad_std_eval", "std_vad_std_eval"):
       # When evaluating on standard 2-class VAD, map non-target speech (2) to
-      # speech (0) in labels and use the first two score columns [speech, ns].
+      # speech (0) in labels.
       labels = np.where(labels == 2, 0, labels)
-      scores = scores[:, :2]
+      if self.speech_score_mode == "tss_plus_ntss" and scores.shape[1] >= 3:
+        speech_col = scores[:, 0] + scores[:, 2]
+        scores = np.stack([speech_col, scores[:, 1]], axis=-1)
+      else:
+        scores = scores[:, :2]
 
     if scores.shape[0] != labels.shape[0]:
       raise ValueError(

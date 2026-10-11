@@ -44,6 +44,7 @@ class ConfigsTest(unittest.TestCase):
     self.assertEqual(v2_conf.backbone, configs.BackboneType.CONFORMER)
     self.assertEqual(v2_conf.conformer_num_layers, 4)
     self.assertEqual(v2_conf.conformer_dim, 64)
+    self.assertFalse(v2_conf.film_apply_residual)
 
     v2_lstm = configs.ModelConfig.pvad_v2_lstm()
     self.assertEqual(v2_lstm.backbone, configs.BackboneType.LSTM_V2)

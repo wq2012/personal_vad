@@ -1,10 +1,12 @@
-"""TFLite export, 8-bit quantization, and inference runner for Personal VAD.
+"""TFLite export, 8-bit quantization, and stateful streaming runner.
 
 Supports:
 - Personal VAD 2.0 Section 2.1 (arXiv:2204.03793): exporting Personal VAD
   models to TensorFlow Lite format with optional 8-bit dynamic-range
   post-training quantization.
-- Running TFLite inference over arbitrary-length acoustic feature sequences.
+- Explicit stateful streaming carry-over across chunks in TFLite (`state_in` ->
+  `probs, state_out`) so long sequences preserve recurrent (LSTM) and
+  attention/convolution (Conformer) state across chunk boundaries.
 """
 
 import os
@@ -41,7 +43,7 @@ def export_to_tflite(
     quantize: bool = True,
     sequence_length: int = 32,
 ) -> bytes:
-  """Exports a `PersonalVadModel` to TensorFlow Lite format.
+  """Exports a `PersonalVadModel` to stateful streaming TensorFlow Lite format.
 
   Args:
     pvad_model: Trained or initialized `PersonalVadModel` instance.
@@ -49,7 +51,7 @@ def export_to_tflite(
     quantize: If True, applies 8-bit dynamic range post-training quantization
       (`tf.lite.Optimize.DEFAULT`), reducing model size by ~75% as described in
       Personal VAD 2.0 Section 2.1.
-    sequence_length: Number of frames per inference call in the exported TFLite
+    sequence_length: Number of frames per inference chunk in the exported TFLite
       signature (default 32).
 
   Returns:
@@ -65,28 +67,23 @@ def export_to_tflite(
       configs.ConditioningMode.SET,
   )
   needs_speaker = cfg.conditioning_mode != configs.ConditioningMode.SC
+  state_shape = pvad_model.streaming_state_shape(batch_size=1)
 
-  def _forward_unrolled(
+  def _forward_stateful(
       features: tf.Tensor,
       speaker_embedding: Optional[tf.Tensor],
       cosine_score: Optional[tf.Tensor],
-  ) -> tf.Tensor:
-    if cfg.backbone == configs.BackboneType.CONFORMER:
-      return pvad_model.predict_proba(
-          features,
-          speaker_embedding=speaker_embedding,
-          cosine_score=cosine_score,
-      )
-    # For LSTM backbones, run `stream_step` on the chunk so `lstm.cell` is
-    # unrolled into pure TFLITE_BUILTINS without TensorList ops.
-    state = pvad_model.init_streaming_state(batch_size=1)
-    _, probs, _ = pvad_model.stream_step(
+      state_tensor: tf.Tensor,
+  ) -> tuple[tf.Tensor, tf.Tensor]:
+    state_dict = pvad_model.unpack_streaming_state(state_tensor)
+    _, probs, new_state_dict = pvad_model.stream_step(
         features,
         speaker_embedding=speaker_embedding,
-        state=state,
+        state=state_dict,
         cosine_score=cosine_score,
     )
-    return probs
+    new_state_tensor = pvad_model.pack_streaming_state(new_state_dict)
+    return probs, new_state_tensor
 
   feat_spec = tf.TensorSpec(
       shape=[1, sequence_length, cfg.feature_dim],
@@ -103,39 +100,51 @@ def export_to_tflite(
       dtype=tf.float32,
       name="cosine_score",
   )
+  state_spec = tf.TensorSpec(
+      shape=state_shape,
+      dtype=tf.float32,
+      name="state_in",
+  )
 
   if not needs_speaker:
 
-    @tf.function(input_signature=[feat_spec])
-    def serve_sc(features: tf.Tensor) -> tf.Tensor:
-      return _forward_unrolled(features, None, None)
+    @tf.function(input_signature=[feat_spec, state_spec])
+    def serve_sc(
+        features: tf.Tensor, state_in: tf.Tensor
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      return _forward_stateful(features, None, None, state_in)
 
     concrete_func = serve_sc.get_concrete_function()
   elif needs_cosine and cfg.conditioning_mode == configs.ConditioningMode.ST:
 
-    @tf.function(input_signature=[feat_spec, cos_spec])
-    def serve_st(features: tf.Tensor, cosine_score: tf.Tensor) -> tf.Tensor:
-      return _forward_unrolled(features, None, cosine_score)
+    @tf.function(input_signature=[feat_spec, cos_spec, state_spec])
+    def serve_st(
+        features: tf.Tensor, cosine_score: tf.Tensor, state_in: tf.Tensor
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      return _forward_stateful(features, None, cosine_score, state_in)
 
     concrete_func = serve_st.get_concrete_function()
   elif needs_cosine and cfg.conditioning_mode == configs.ConditioningMode.SET:
 
-    @tf.function(input_signature=[feat_spec, spk_spec, cos_spec])
+    @tf.function(input_signature=[feat_spec, spk_spec, cos_spec, state_spec])
     def serve_set(
         features: tf.Tensor,
         speaker_embedding: tf.Tensor,
         cosine_score: tf.Tensor,
-    ) -> tf.Tensor:
-      return _forward_unrolled(features, speaker_embedding, cosine_score)
+        state_in: tf.Tensor,
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      return _forward_stateful(
+          features, speaker_embedding, cosine_score, state_in
+      )
 
     concrete_func = serve_set.get_concrete_function()
   else:
 
-    @tf.function(input_signature=[feat_spec, spk_spec])
+    @tf.function(input_signature=[feat_spec, spk_spec, state_spec])
     def serve_default(
-        features: tf.Tensor, speaker_embedding: tf.Tensor
-    ) -> tf.Tensor:
-      return _forward_unrolled(features, speaker_embedding, None)
+        features: tf.Tensor, speaker_embedding: tf.Tensor, state_in: tf.Tensor
+    ) -> tuple[tf.Tensor, tf.Tensor]:
+      return _forward_stateful(features, speaker_embedding, None, state_in)
 
     concrete_func = serve_default.get_concrete_function()
 
@@ -157,7 +166,7 @@ def export_to_tflite(
 
 
 class TFLitePersonalVadRunner:
-  """Runs Personal VAD inference using a TensorFlow Lite model."""
+  """Runs stateful streaming Personal VAD inference using a TFLite model."""
 
   def __init__(self, model_source: Union[str, bytes]):
     """Initializes the TFLite interpreter.
@@ -178,31 +187,56 @@ class TFLitePersonalVadRunner:
     self.input_details = self.interpreter.get_input_details()
     self.output_details = self.interpreter.get_output_details()
 
-    # Identify input tensor indices by name or shape.
+    # Identify input tensor indices by shape/name.
     self._features_idx = 0
     self._speaker_idx = None
     self._cosine_idx = None
+    self._state_in_idx = None
     for idx, detail in enumerate(self.input_details):
       name = detail["name"].lower()
       shape = tuple(detail["shape"])
-      if "feature" in name or (len(shape) == 3 and shape[-1] > 1):
+      if len(shape) == 4 or "state" in name:
+        self._state_in_idx = idx
+      elif "feature" in name or (len(shape) == 3 and shape[-1] > 1):
         self._features_idx = idx
       elif "speaker" in name or len(shape) == 2:
         self._speaker_idx = idx
       elif "cosine" in name or (len(shape) == 3 and shape[-1] == 1):
         self._cosine_idx = idx
 
+    # Identify output tensor indices (3-D probs vs 4-D state_out).
+    self._probs_out_idx = 0
+    self._state_out_idx = None
+    for idx, detail in enumerate(self.output_details):
+      shape = tuple(detail["shape"])
+      if len(shape) == 4:
+        self._state_out_idx = idx
+      elif len(shape) == 3:
+        self._probs_out_idx = idx
+
     feat_shape = self.input_details[self._features_idx]["shape"]
     self.chunk_length = int(feat_shape[1])
     self.feature_dim = int(feat_shape[2])
+    self._state: Optional[np.ndarray] = None
+    self.reset_state()
+
+  def reset_state(self) -> Optional[np.ndarray]:
+    """Resets the internal streaming state to zeros and returns it."""
+    if self._state_in_idx is not None:
+      state_shape = tuple(self.input_details[self._state_in_idx]["shape"])
+      self._state = np.zeros(state_shape, dtype=np.float32)
+    else:
+      self._state = None
+    return self._state
 
   def predict_chunk(
       self,
       features_chunk: np.ndarray,
       speaker_embedding: Optional[np.ndarray] = None,
       cosine_chunk: Optional[np.ndarray] = None,
+      state: Optional[np.ndarray] = None,
   ) -> np.ndarray:
-    """Runs inference on a single chunk of length `self.chunk_length`."""
+    """Runs inference on a single chunk and updates streaming state."""
     feat = np.asarray(features_chunk, dtype=np.float32)
     if feat.ndim == 2:
       feat = np.expand_dims(feat, axis=0)
@@ -225,9 +259,23 @@ class TFLitePersonalVadRunner:
       self.interpreter.set_tensor(
           self.input_details[self._cosine_idx]["index"], cos
       )
+    if self._state_in_idx is not None:
+      active_state = state if state is not None else self._state
+      if active_state is None:
+        active_state = self.reset_state()
+      self.interpreter.set_tensor(
+          self.input_details[self._state_in_idx]["index"],
+          np.asarray(active_state, dtype=np.float32),
+      )
 
     self.interpreter.invoke()
-    output = self.interpreter.get_tensor(self.output_details[0]["index"])
+    output = self.interpreter.get_tensor(
+        self.output_details[self._probs_out_idx]["index"]
+    )
+    if self._state_out_idx is not None:
+      self._state = self.interpreter.get_tensor(
+          self.output_details[self._state_out_idx]["index"]
+      ).copy()
     return np.squeeze(output, axis=0)
 
   def predict(
@@ -235,17 +283,20 @@ class TFLitePersonalVadRunner:
       features: np.ndarray,
       speaker_embedding: Optional[np.ndarray] = None,
       cosine_score: Optional[np.ndarray] = None,
+      reset_state: bool = True,
   ) -> np.ndarray:
-    """Runs inference on an arbitrary-length sequence of acoustic features.
+    """Runs stateful streaming inference over an arbitrary-length sequence.
 
-    Pads the sequence to a multiple of `self.chunk_length`, evaluates chunk by
-    chunk, and trims the output back to `num_frames`.
+    Initializes streaming state to zeros (when `reset_state=True`), evaluates
+    chunk by chunk while carrying recurrent/Conformer state across chunk
+    boundaries, and trims the final chunk's padding back to `num_frames`.
 
     Args:
       features: Float32 array of shape `[num_frames, feature_dim]`.
       speaker_embedding: Optional float32 array of shape `[emb_dim]`.
       cosine_score: Optional float32 array of shape `[num_frames, 1]` or
         `[num_frames]`.
+      reset_state: Whether to reset streaming state before the first chunk.
 
     Returns:
       Float32 array of shape `[num_frames, num_classes]` containing frame-level
@@ -260,6 +311,9 @@ class TFLitePersonalVadRunner:
     num_frames = features.shape[0]
     if num_frames == 0:
       raise ValueError("features must have at least 1 frame.")
+
+    if reset_state:
+      self.reset_state()
 
     outputs = []
     for start in range(0, num_frames, self.chunk_length):

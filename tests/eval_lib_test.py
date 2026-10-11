@@ -60,6 +60,19 @@ class EvalLibTest(unittest.TestCase):
       self.assertIn("Silence", result.average_precisions)
       self.assertGreater(result.mean_average_precision_micro, 0.5)
 
+    eval_sum = eval_lib.PersonalVadEvaluator(
+        eval_mode="personal_vad_std_eval", speech_score_mode="tss_plus_ntss"
+    )
+    res_sum = eval_sum.evaluate(self.scores, self.labels)
+    self.assertGreaterEqual(
+        res_sum.average_precisions["Speech"],
+        eval_lib.PersonalVadEvaluator(
+            eval_mode="personal_vad_std_eval", speech_score_mode="tss"
+        )
+        .evaluate(self.scores, self.labels)
+        .average_precisions["Speech"],
+    )
+
   def test_sc_baseline_conversion_and_report_files(self):
     sc_input = np.asarray(
         [

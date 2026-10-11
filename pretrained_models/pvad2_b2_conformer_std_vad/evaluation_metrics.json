@@ -3,64 +3,124 @@
   "backbone": "conformer",
   "conditioning_mode": "sc",
   "loss_type": "cross_entropy",
-  "final_train_loss": 0.03716443182731217,
+  "final_train_loss": 0.3121750056743622,
   "artifacts": {
     "weights_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model.weights.h5",
     "safetensors_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model.safetensors",
     "config_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_config.json",
     "fp32_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_fp32.tflite",
     "quant_tflite_path": "/usr/local/google/home/quanw/Data/pvad_MLS_Watch_models/pvad2_b2_conformer_std_vad/model_quantized.tflite",
-    "fp32_size_kb": 2771.39,
-    "quant_size_kb": 880.12,
+    "fp32_size_kb": 2754.39,
+    "quant_size_kb": 863.15,
     "safetensors_size_kb": 2680.11,
     "num_parameters": 683458
   },
   "evaluations": {
     "std_vad_non_concat": {
       "eval_mode": "std_vad_std_eval",
-      "num_frames": 11655,
-      "overall_accuracy": 0.9643929643929644,
+      "num_frames": 20160,
+      "overall_accuracy": 0.915079365079365,
       "class_accuracies": {
-        "Speech": 0.9813932380304061,
-        "Silence": 0.9116508271735304
+        "Speech": 0.9293805062229059,
+        "Silence": 0.8801638784568112
       },
       "average_precisions": {
-        "Speech": 0.9967379415514046,
-        "Silence": 0.9665287855700847
+        "Speech": 0.9867757340237113,
+        "Silence": 0.9357318814589516
       },
-      "mean_average_precision_micro": 0.9930493986845925,
+      "mean_average_precision_micro": 0.9753186946755168,
       "roc_aucs": {
-        "Speech": 0.9899722546296263,
-        "Silence": 0.9899724942407472
+        "Speech": 0.9688233981032194,
+        "Silence": 0.9688233981032192
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 360,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.9908,
-          0.995
+          0.9719,
+          0.9786
         ]
       }
     },
     "std_vad_concat": {
       "eval_mode": "std_vad_std_eval",
-      "num_frames": 23310,
-      "overall_accuracy": 0.9661518661518661,
+      "num_frames": 40320,
+      "overall_accuracy": 0.9083085317460318,
       "class_accuracies": {
-        "Speech": 0.9806557749035625,
-        "Silence": 0.9211545230552622
+        "Speech": 0.923612082226262,
+        "Silence": 0.8709457152611813
       },
       "average_precisions": {
-        "Speech": 0.9968492418740119,
-        "Silence": 0.9725632924532177
+        "Speech": 0.9851901497124902,
+        "Silence": 0.9298671208514125
       },
-      "mean_average_precision_micro": 0.9936819478700964,
+      "mean_average_precision_micro": 0.9725202871422619,
       "roc_aucs": {
-        "Speech": 0.9908974181262779,
-        "Silence": 0.990896963863528
+        "Speech": 0.9654226093741698,
+        "Silence": 0.9654226093741697
       },
       "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 1000,
         "mAP_micro_95_ci": [
-          0.9922,
-          0.9951
+          0.9694,
+          0.9752
+        ]
+      }
+    },
+    "std_vad_concat_tflite_fp32": {
+      "eval_mode": "std_vad_std_eval",
+      "num_frames": 40320,
+      "overall_accuracy": 0.9083085317460318,
+      "class_accuracies": {
+        "Speech": 0.923612082226262,
+        "Silence": 0.8709457152611813
+      },
+      "average_precisions": {
+        "Speech": 0.9851901525227911,
+        "Silence": 0.9298671505136955
+      },
+      "mean_average_precision_micro": 0.9725202917658639,
+      "roc_aucs": {
+        "Speech": 0.9654226198180507,
+        "Silence": 0.9654226153421015
+      },
+      "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 200,
+        "mAP_micro_95_ci": [
+          0.9694,
+          0.9752
+        ]
+      }
+    },
+    "std_vad_concat_tflite_quant": {
+      "eval_mode": "std_vad_std_eval",
+      "num_frames": 40320,
+      "overall_accuracy": 0.9082093253968254,
+      "class_accuracies": {
+        "Speech": 0.9238917633897357,
+        "Silence": 0.8699214749061113
+      },
+      "average_precisions": {
+        "Speech": 0.9851859554073861,
+        "Silence": 0.9298606137443077
+      },
+      "mean_average_precision_micro": 0.9725607042870501,
+      "roc_aucs": {
+        "Speech": 0.9654223035176568,
+        "Silence": 0.9654222960577417
+      },
+      "bootstrap_ci": {
+        "resample_unit": "utterance_mixture",
+        "num_clusters": 343,
+        "n_resamples": 200,
+        "mAP_micro_95_ci": [
+          0.9695,
+          0.9752
         ]
       }
     }

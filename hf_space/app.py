@@ -208,10 +208,13 @@ def run_demo_inference(
       if (enrollment_less or not enrollment_audio_path)
       else enrollment_audio_path
   )
+  use_enrollment_less = bool(enrollment_less or (enroll_arg is None))
 
   std_engine = _get_engine("std_vad")
   v1_engine = _get_engine("pvad1_et_wpl")
-  v2_engine = _get_engine("pvad2_e5" if enrollment_less else "pvad2_e3")
+  v2_engine = _get_engine("pvad2_e5" if use_enrollment_less else "pvad2_e3")
+
+  wav_16k = v2_engine._load_audio(conversation_audio_path)  # noqa: SLF001
 
   std_res = std_engine.predict_audio(
       conversation_audio_path,
@@ -233,22 +236,22 @@ def run_demo_inference(
   )
 
   plot_path = _render_comparison_figure(
-      wav=wav,
-      sr=sr,
+      wav=wav_16k,
+      sr=16000,
       std_res=std_res,
       v1_res=v1_res,
       v2_res=v2_res,
       threshold=threshold,
-      enrollment_less=enrollment_less or (enroll_arg is None),
+      enrollment_less=use_enrollment_less,
   )
 
   out_wav_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-  sf.write(out_wav_file.name, v2_res["filtered_audio"], sr)
+  sf.write(out_wav_file.name, v2_res["filtered_audio"], 16000)
 
   report = {
       "mode": (
           "enrollment_less"
-          if (enrollment_less or enroll_arg is None)
+          if use_enrollment_less
           else "enrolled_target_speaker"
       ),
       "runtime": "TFLite 8-bit Quantized" if use_tflite else "TensorFlow FP32",
@@ -281,12 +284,14 @@ def build_gradio_interface() -> gr.Blocks:
         "**Personal VAD 1.0** ([arXiv:1908.04284]"
         "(https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** "
         "([arXiv:2204.03793](https://arxiv.org/abs/2204.03793)) trained on "
-        "the 8-language Multilingual LibriSpeech (MLS) benchmark. Instead of "
-        "the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM "
-        "speaker encoder, enrollment 256-D d-vectors are extracted using a "
-        "self-contained open-set regularized LDA+PCA speaker subspace "
-        "extractor (`speaker_subspace.npz`) trained from scratch on 98 MLS "
-        "training speakers (`0.9521` ROC-AUC on 35 unseen test speakers)."
+        "the 8-language Multilingual LibriSpeech (MLS) benchmark (`98` train, "
+        "`16` dev, `40` unseen test speakers; `1,831` total utterances). "
+        "Instead of the original papers' proprietary 4.88M-parameter 3-layer "
+        "GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted "
+        "using a self-contained open-set regularized LDA+WCCN+PCA speaker "
+        "subspace extractor (`speaker_subspace.npz`) trained from scratch on "
+        "the 98 MLS training speakers (`0.9579` ROC-AUC on 16 unseen dev "
+        "speakers and `0.9449` ROC-AUC on 40 unseen test speakers)."
     )
     with gr.Row():
       with gr.Column(scale=1):

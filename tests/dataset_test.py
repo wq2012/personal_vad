@@ -105,6 +105,29 @@ class DatasetTest(unittest.TestCase):
           batch_labels.numpy(),
       )
 
+  def test_concat_distinct_speakers_and_mtr_augmentation(self):
+    rng = np.random.default_rng(7)
+    # 3 consecutive utterances from spk_a followed by 3 from spk_b
+    pool = [self.utt1, self.utt1, self.utt1, self.utt2, self.utt2, self.utt2]
+    grouped = dataset.concat_utterance_group(
+        pool, min_utterances=2, max_utterances=2, rng=rng
+    )
+    self.assertEqual(len(grouped), 3)
+    for g in grouped:
+      # Every pair should contain both spk_a and spk_b (so ntss=2 is present)
+      self.assertIn(
+          int(configs.FrameLabel.SPEECH_FROM_NON_TARGET_SPEAKER), g.labels
+      )
+
+    wav = (0.2 * rng.standard_normal(8000)).astype(np.float32)
+    aug = dataset.apply_mtr_augmentation(
+        wav, sample_rate=16000, reverb_prob=1.0, noise_prob=1.0, rng=rng
+    )
+    self.assertEqual(aug.shape, wav.shape)
+    self.assertEqual(aug.dtype, np.float32)
+    self.assertTrue(np.all(np.isfinite(aug)))
+    self.assertGreater(float(np.max(np.abs(aug - wav))), 1e-4)
+
 
 if __name__ == "__main__":
   unittest.main()
