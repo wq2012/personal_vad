@@ -677,3 +677,33 @@ class PersonalVadModel(tf.keras.Model):
     logits = self.classifier(x)
     probs = tf.nn.softmax(logits, axis=-1)
     return logits, probs, new_state
+
+  def step_frame(
+      self,
+      feature_frame: Union[tf.Tensor, Any],
+      speaker_embedding: Optional[Union[tf.Tensor, Any]] = None,
+      state: Optional[dict[str, Any]] = None,
+      cosine_score: Optional[Union[tf.Tensor, Any]] = None,
+  ) -> tuple[tf.Tensor, dict[str, Any]]:
+    """Executes one streaming frame step and returns `(probs_1d, new_state)`."""
+    feat = tf.convert_to_tensor(feature_frame, dtype=tf.float32)
+    if feat.shape.rank == 1:
+      feat = tf.reshape(feat, [1, 1, -1])
+    elif feat.shape.rank == 2:
+      feat = tf.expand_dims(feat, axis=1)
+    batch_size = int(feat.shape[0] or 1)
+    if state is None:
+      state = self.init_streaming_state(batch_size=batch_size)
+    spk = None
+    if speaker_embedding is not None:
+      spk = tf.convert_to_tensor(speaker_embedding, dtype=tf.float32)
+      if spk.shape.rank == 1:
+        spk = tf.expand_dims(spk, axis=0)
+    cos = None
+    if cosine_score is not None:
+      cos = tf.convert_to_tensor(cosine_score, dtype=tf.float32)
+      cos = tf.reshape(cos, [batch_size, 1, 1])
+    _, probs, new_state = self.stream_step(
+        feat, speaker_embedding=spk, state=state, cosine_score=cos
+    )
+    return tf.squeeze(probs, axis=[0, 1]), new_state

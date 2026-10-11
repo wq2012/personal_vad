@@ -40,7 +40,7 @@ def _causal_window_sums(x: np.ndarray, window: int) -> np.ndarray:
 def extract_causal_360d_frame_stats(
     mel_40: np.ndarray,
     mel_80: np.ndarray,
-    window: int = 45,
+    window: int = 14,
     mel_mean_v1: Optional[np.ndarray] = None,
     energy_threshold: float = -7.5,
 ) -> np.ndarray:
@@ -165,6 +165,9 @@ def project_speaker_frames(
   return dataset.l2_normalize_numpy(emb_256, axis=-1)
 
 
+OpenSetSpeakerSubspace = dataset.OpenSetSpeakerSubspace
+
+
 class PersonalVadInferenceEngine:
   """Strictly causal end-to-end inference engine for Personal VAD 1.0 & 2.0."""
 
@@ -273,11 +276,10 @@ class PersonalVadInferenceEngine:
 
     # Causal frame-level speaker embeddings for SC / ST / SET modes
     if self.subspace is not None and "proj_lda" in self.subspace:
-      # Use a short causal window (25 frames = 250ms) for frame-level speaker
-      # embeddings, reflecting frame-level speaker verification without neural
-      # temporal adaptation.
+      # Use a short causal window (14 frames = 140ms) for frame-level speaker
+      # embeddings, matching prepare_dataset.extract_pure_acoustic_features.
       frame_embs_10ms = project_speaker_frames(
-          mel_40_full, mel_80_full, self.subspace, window=25
+          mel_40_full, mel_80_full, self.subspace, window=14
       )
     else:
       frame_embs_10ms = np.zeros(

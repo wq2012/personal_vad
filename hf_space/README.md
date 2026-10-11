@@ -14,15 +14,15 @@ short_description: Speaker-conditioned voice activity detection (Personal VAD)
 
 **This is not an officially supported Google product.**
 
-> **Open-Source Reproduction Notice:** This interactive Space and the accompanying [`personal-vad` GitHub repository](https://github.com/wq2012/personal_vad) provide an independent open-source reproduction of the **Personal VAD 1.0** ([Ding et al., Odyssey 2020](https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** ([Ding et al., INTERSPEECH 2022](https://arxiv.org/abs/2204.03793)) papers. Because the original studies were conducted using proprietary internal training corpora and infrastructure, this project re-implements the complete pipeline from scratch using standard open-source Python/TensorFlow components and trains all models on the public 8-language **Multilingual LibriSpeech (MLS)** corpus.
+> **Open-Source Reproduction Notice:** This interactive Space and the accompanying [`personal-vad` GitHub repository](https://github.com/wq2012/personal_vad) provide an independent open-source reproduction of the **Personal VAD 1.0** ([Ding et al., Odyssey 2020](https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** ([Ding et al., INTERSPEECH 2022](https://arxiv.org/abs/2204.03793)) papers. Because the original studies were conducted using proprietary internal training corpora and infrastructure, this project re-implements the complete pipeline from scratch using standard open-source Python/TensorFlow components and trains all models on our 8-language **Multilingual LibriSpeech (MLS)** benchmark (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, combining the 7 non-English `facebook/multilingual_librispeech` languages with OpenSLR 12 English LibriSpeech).
 
 ## Interactive Features
 
 1. **Dual Input Modes**:
    - **Predefined Multilingual Multi-Speaker Examples**: Select from curated 2–3 speaker conversational audio clips across English, German, French, and Spanish with enrolled target speaker reference audio.
-   - **Custom Audio Upload & Enrollment-Less Mode**: Upload your own target speaker enrollment clip and multi-speaker test recording, or toggle **Enrollment-Less Mode** (`e_target = 0`) to see how **Personal VAD 2.0 Unified (`E5`)** seamlessly falls back to standard voice activity detection.
+   - **Custom Audio Upload & Client-Side Neural LSTM Inference**: Upload your own target speaker enrollment clip and multi-speaker test recording to run real client-side 360-D -> 256-D speaker subspace projection and 2-layer 64-unit LSTM neural network inference (`pvad1_sc_baseline`, `pvad1_et_wpl`, and `pvad1_set_ce`) directly in your browser via `browser_model.json`, or toggle **Enrollment-Less Mode** (`e_target = 0`).
 2. **Side-by-Side Architecture Comparison**:
-   - **Standard VAD (`B2` Conformer)**: Detects all speech (`speech` vs. `silence`) regardless of who is speaking.
+   - **Standard VAD (`B2` Conformer / `SC` LSTM)**: Detects all speech (`speech` vs. `silence`) regardless of who is speaking.
    - **Personal VAD 1.0 (`ET + WPL`)**: 2-layer LSTM (`64` units, `130K` parameters) conditioned on the enrolled speaker d-vector and trained with Weighted Pairwise Loss (`w_<ns,ntss> = 0.1`).
    - **Personal VAD 2.0 (`E3` / `E5` Conformer + FiLM + Speaker Pre-Net)**: 4-layer causal streaming Conformer (`64`-d, `8` heads, `31` left context) with Speaker Pre-Net cosine similarity and Feature-wise Linear Modulation (FiLM).
 3. **Target-Speaker-Filtered Audio Playback**:
@@ -30,9 +30,9 @@ short_description: Speaker-conditioned voice activity detection (Personal VAD)
 
 ## Speaker Embedding (`d-vector`) Extractor Design & Transparency
 
-Whereas the original Personal VAD 1.0 and 2.0 papers used Google's proprietary 4.88M-parameter 3-layer GE2E LSTM speaker verification model trained on internal vendor datasets, this open-source reproduction uses our own self-contained, non-neural **open-set 256-D speaker subspace extractor** (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) trained from scratch on the **98 training speakers** (`1,159` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset (`16` unseen dev speakers / `192` utterances; `40` unseen test speakers / `480` utterances):
-- Extracts a **360-D multi-resolution acoustic statistic vector** over voiced speech frames (40-D log-Mel `[mean, std, p10, p90, delta_std]` = 200-D concatenated with 80-D log-Mel `[mean, std]` = 160-D; or over a strictly causal 31-frame / ~310 ms sliding window for frame-level scores `s_t`).
-- Projects onto a **256-D discriminative subspace** fitted via regularized Linear Discriminant Analysis (LDA), Within-Class Covariance Normalization (WCCN), and orthogonal PCA completion, adds a fixed positive-cone coordinate offset, and applies L2 normalization (`||e||_2 = 1`).
+Whereas the original Personal VAD 1.0 and 2.0 papers used Google's proprietary 4.88M-parameter 3-layer GE2E LSTM speaker verification model trained on internal vendor datasets, this open-source reproduction uses our own self-contained, non-neural **open-set 256-D speaker subspace extractor** (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`, `472.8 KB`) trained from scratch on the **98 training speakers** (`1,159` utterances) of the 8-language Multilingual LibriSpeech (MLS) benchmark (`16` unseen dev speakers / `192` utterances; `40` unseen test speakers / `480` utterances):
+- Extracts a **360-D multi-resolution acoustic statistic vector** over voiced speech frames (40-D log-Mel `[mean, std, pos_dev, neg_dev, delta_rms]` = 200-D concatenated with 80-D log-Mel `[mean, std]` = 160-D; or over a strictly causal 14-frame / 140 ms sliding window for frame-level scores `s_t`).
+- Projects onto a **full-rank 256-D discriminative subspace** fitted via regularized Linear Discriminant Analysis (LDA), Within-Class Covariance Normalization (WCCN), and orthogonal PCA completion, adds a fixed positive-cone coordinate offset, and applies L2 normalization (`||e||_2 = 1`).
 - Achieves an open-set speaker verification **ROC-AUC of `0.9579`** on the 16 unseen dev speakers and **`0.9449`** (mean same-speaker cosine similarity `0.5424` vs. different-speaker `-0.0166`) across the **40 held-out unseen test speakers** (`480` utterances: `120` enrollment + `360` evaluation utterances).
 
 ## Running the Full Gradio App Locally

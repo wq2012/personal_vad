@@ -99,6 +99,24 @@ class TFLiteExportTest(unittest.TestCase):
     actual = runner.predict(features, speaker_embedding=spk_emb)
     np.testing.assert_allclose(expected, actual, atol=1e-4)
 
+    # Verify model card Quickstart signature (chunk_size=2, stateful=True)
+    # and step_frame() 1-frame-at-a-time streaming invariance
+    actual_chunk2 = runner.predict(
+        features,
+        speaker_embedding=spk_emb,
+        cosine_score=np.zeros((11, 1), dtype=np.float32),
+        chunk_size=2,
+        stateful=True,
+    )
+    np.testing.assert_allclose(actual, actual_chunk2, atol=1e-5)
+
+    runner.reset_state()
+    stepped = [
+        runner.step_frame(features[t], speaker_embedding=spk_emb)
+        for t in range(11)
+    ]
+    np.testing.assert_allclose(actual, np.stack(stepped, axis=0), atol=1e-5)
+
     with tempfile.TemporaryDirectory() as tmpdir:
       cli_tflite = os.path.join(tmpdir, "cli.tflite")
       export_tflite.main([

@@ -209,7 +209,7 @@
 
     <div class="disclaimer">
       <strong>This is not an officially supported Google product.</strong>
-      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public 8-language Multilingual LibriSpeech (MLS) audio (<code>de</code>, <code>en</code>, <code>es</code>, <code>fr</code>, <code>it</code>, <code>nl</code>, <code>pl</code>, <code>pt</code>; 98 train, 16 dev, 40 unseen test speakers; 1,831 utterances). Instead of the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted using our self-contained open-set regularized LDA+WCCN+PCA speaker subspace extractor (<code>speaker_subspace.npz</code>, trained from scratch on 98 MLS training speakers; <code>0.9579</code> ROC-AUC on 16 unseen dev speakers and <code>0.9449</code> ROC-AUC on 40 unseen test speakers).
+      This interactive demo and the accompanying open-source library reproduce the Personal VAD 1.0 and 2.0 architectures from scratch using public 8-language Multilingual LibriSpeech (MLS) audio (<code>de</code>, <code>en</code>, <code>es</code>, <code>fr</code>, <code>it</code>, <code>nl</code>, <code>pl</code>, <code>pt</code>, combining the 7 non-English <code>facebook/multilingual_librispeech</code> languages with OpenSLR 12 English LibriSpeech; 98 train, 16 dev, 40 unseen test speakers; 1,831 utterances). Instead of the original papers' proprietary 4.88M-parameter 3-layer GE2E LSTM speaker encoder, enrollment 256-D d-vectors are extracted using our self-contained open-set regularized LDA+WCCN+PCA speaker subspace extractor (<code>speaker_subspace.npz</code>, trained from scratch on 98 MLS training speakers; <code>0.9579</code> ROC-AUC on 16 unseen dev speakers and <code>0.9449</code> ROC-AUC on 40 unseen test speakers). Predefined examples display full Conformer (<code>B2</code>, <code>E3</code>, <code>E5</code>) and LSTM (<code>ET+WPL</code>) outputs; custom browser audio uploads execute real client-side 360-D &rarr; 256-D subspace projection and 2-layer 64-unit LSTM neural network inference (<code>pvad1_sc_baseline</code>, <code>pvad1_et_wpl</code>, and <code>pvad1_set_ce</code>) via <code>browser_model.json</code>.
     </div>
 
     <div class="grid">
@@ -239,7 +239,7 @@
 
         <button class="btn" id="runBtn">Update Posterior Comparison &amp; Gated Audio</button>
 
-        <label style="margin-top:18px;">Target-Speaker-Filtered Output Audio (PVAD 2.0 Gate)</label>
+        <label style="margin-top:18px;">Target-Speaker-Filtered Output Audio (PVAD Gate)</label>
         <audio id="filteredAudio" controls></audio>
 
         <table id="summaryTable" style="margin-top:14px;">
@@ -271,7 +271,7 @@
 
           <div class="plot-box">
             <div class="plot-title">
-              <span>2. Standard VAD Baseline (B2 Conformer) — Triggers on All Speakers</span>
+              <span id="stdPlotTitle">2. Standard VAD Baseline (B2 Conformer) — Triggers on All Speakers</span>
               <div class="legend">
                 <span><i class="dot" style="background:#2563eb"></i>Speech (All)</span>
                 <span><i class="dot" style="background:#94a3b8"></i>Silence (ns)</span>
@@ -414,15 +414,17 @@
     }
 
     const FB_40 = buildMelFilterbank(40, 512, 16000, 125.0, 7500.0);
+    const FB_80 = buildMelFilterbank(80, 512, 16000, 80.0, 7600.0);
 
-    function extractLogMel40(samples) {
+    function extractLogMel40And80(samples) {
       const frameLen = 400, frameStep = 160, fftSize = 512;
       const numFrames = Math.max(1, Math.floor((samples.length - frameLen) / frameStep) + 1);
       const hann = new Float32Array(frameLen);
       for (let i = 0; i < frameLen; i++) {
         hann[i] = 0.5 - 0.5 * Math.cos((2.0 * Math.PI * i) / frameLen);
       }
-      const frames = [];
+      const mel40 = [];
+      const mel80 = [];
       const re = new Float32Array(fftSize);
       const im = new Float32Array(fftSize);
       const mag = new Float32Array(257);
@@ -430,64 +432,206 @@
         const start = t * frameStep;
         re.fill(0.0); im.fill(0.0);
         for (let i = 0; i < frameLen && (start + i) < samples.length; i++) {
-          const cur = samples[start + i];
-          const prev = (start + i > 0) ? samples[start + i - 1] : cur;
-          const pre = (i === 0 && start === 0) ? cur : (cur - 0.97 * prev);
-          re[i] = pre * hann[i];
+          re[i] = samples[start + i] * hann[i];
         }
         radix2FFT(re, im);
         for (let k = 0; k < 257; k++) {
           mag[k] = Math.hypot(re[k], im[k]);
         }
-        const mel = new Float32Array(40);
+        const m40 = new Float32Array(40);
         for (let m = 0; m < 40; m++) {
           let sum = 0.0;
           const row = FB_40[m];
           for (let k = 0; k < 257; k++) sum += mag[k] * row[k];
-          mel[m] = Math.log(sum + 1e-6);
+          m40[m] = Math.log(sum + 1e-6);
         }
-        frames.push(mel);
+        const m80 = new Float32Array(80);
+        for (let m = 0; m < 80; m++) {
+          let sum = 0.0;
+          const row = FB_80[m];
+          for (let k = 0; k < 257; k++) sum += mag[k] * row[k];
+          m80[m] = Math.log(sum + 1e-6);
+        }
+        mel40.push(m40);
+        mel80.push(m80);
       }
-      return frames;
+      return { mel40, mel80 };
     }
 
-    function computeCausalSpeakerCoord(melFrames, startIdx, endIdx) {
-      const mu = BROWSER_MODEL ? BROWSER_MODEL.mel_mean_v1 : null;
-      const sig = BROWSER_MODEL ? BROWSER_MODEL.mel_std_v1 : null;
-      const wx = BROWSER_MODEL ? BROWSER_MODEL.w_x_v1 : null;
-      const K = wx ? wx[0].length : 32;
-      const z = new Float32Array(K);
-      let wTotal = 0.0;
+    function extract360dStatsWindow(mel40, mel80, startIdx, endIdx) {
+      const sub = BROWSER_MODEL && BROWSER_MODEL.subspace ? BROWSER_MODEL.subspace : null;
+      const melMeanV1 = sub && sub.mel_mean_v1 ? sub.mel_mean_v1 : null;
+      const energyTh = -7.5;
+      const mean40 = new Float32Array(40);
+      const sq40 = new Float32Array(40);
+      const pos40 = new Float32Array(40);
+      const neg40 = new Float32Array(40);
+      const dSq40 = new Float32Array(40);
+      const mean80 = new Float32Array(80);
+      const sq80 = new Float32Array(80);
+      let wSum = 0.0;
+
       for (let t = startIdx; t <= endIdx; t++) {
-        const m = melFrames[t];
+        const m40 = mel40[t];
+        const m80 = mel80[t];
+        const prev40 = t > 0 ? mel40[t - 1] : m40;
         let eSum = 0.0;
-        for (let b = 2; b < 34; b++) eSum += m[b];
-        const eMean = eSum / 32.0;
-        const w = 1.0 / (1.0 + Math.exp(-1.5 * (eMean + 6.8))) + 0.05;
-        wTotal += w;
-        if (wx && mu && sig) {
-          for (let k = 0; k < K; k++) {
-            let dot = 0.0;
-            for (let d = 0; d < 40; d++) {
-              const xNorm = (m[d] - mu[d]) / Math.max(1e-5, sig[d]);
-              dot += xNorm * wx[d][k];
-            }
-            z[k] += w * dot;
-          }
-        } else {
-          for (let k = 0; k < K; k++) {
-            z[k] += w * (m[k % 40] + 6.5);
-          }
+        for (let b = 2; b < 34; b++) eSum += m40[b];
+        const frameEnergy = eSum / 32.0;
+        const zGate = Math.max(-15.0, Math.min(15.0, (frameEnergy - energyTh) * 1.5));
+        const w = 1.0 / (1.0 + Math.exp(-zGate)) + 0.05;
+        wSum += w;
+
+        for (let d = 0; d < 40; d++) {
+          const v = m40[d];
+          const refD = melMeanV1 ? melMeanV1[d] : energyTh;
+          const dv = t > 0 ? (v - prev40[d]) : 0.0;
+          mean40[d] += w * v;
+          sq40[d] += w * v * v;
+          pos40[d] += w * Math.max(0.0, v - refD);
+          neg40[d] += w * Math.max(0.0, refD - v);
+          dSq40[d] += w * dv * dv;
+        }
+        for (let d = 0; d < 80; d++) {
+          const v8 = m80[d];
+          mean80[d] += w * v8;
+          sq80[d] += w * v8 * v8;
         }
       }
+
+      const denom = Math.max(1e-4, wSum);
+      const stat = new Float32Array(360);
+      for (let d = 0; d < 40; d++) {
+        const mu = mean40[d] / denom;
+        const std = Math.sqrt(Math.max(1e-4, sq40[d] / denom - mu * mu));
+        stat[d] = mu;
+        stat[40 + d] = std;
+        stat[80 + d] = pos40[d] / denom;
+        stat[120 + d] = neg40[d] / denom;
+        stat[160 + d] = Math.sqrt(Math.max(1e-4, dSq40[d] / denom));
+      }
+      for (let d = 0; d < 80; d++) {
+        const mu8 = mean80[d] / denom;
+        const std8 = Math.sqrt(Math.max(1e-4, sq80[d] / denom - mu8 * mu8));
+        stat[200 + d] = mu8;
+        stat[280 + d] = std8;
+      }
+      return stat;
+    }
+
+    function projectSpeakerSubspace256(stat360) {
+      const sub = BROWSER_MODEL && BROWSER_MODEL.subspace ? BROWSER_MODEL.subspace : null;
+      const emb = new Float32Array(256);
+      if (!sub) {
+        let normSq = 0.0;
+        for (let k = 0; k < 256; k++) {
+          emb[k] = stat360[k % 360];
+          normSq += emb[k] * emb[k];
+        }
+        const inv = 1.0 / Math.sqrt(Math.max(1e-12, normSq));
+        for (let k = 0; k < 256; k++) emb[k] *= inv;
+        return emb;
+      }
+      const xNorm = new Float32Array(360);
+      for (let d = 0; d < 360; d++) {
+        xNorm[d] = (stat360[d] - sub.mean[d]) / Math.max(1e-5, sub.std[d]);
+      }
+      const proj = sub.proj_lda;
+      const projBias = sub.proj_bias || null;
       let normSq = 0.0;
-      for (let k = 0; k < K; k++) {
-        z[k] /= Math.max(1e-4, wTotal);
-        normSq += z[k] * z[k];
+      for (let k = 0; k < 256; k++) {
+        let sum = projBias ? projBias[k] : 0.0;
+        for (let d = 0; d < 360; d++) sum += xNorm[d] * proj[d][k];
+        emb[k] = sum;
+        normSq += sum * sum;
       }
       const inv = 1.0 / Math.sqrt(Math.max(1e-12, normSq));
-      for (let k = 0; k < K; k++) z[k] *= inv;
-      return z;
+      for (let k = 0; k < 256; k++) emb[k] *= inv;
+      return emb;
+    }
+
+    function computeSpeakerEmbedding256(mel40, mel80, startIdx, endIdx) {
+      const stat360 = extract360dStatsWindow(mel40, mel80, startIdx, endIdx);
+      return projectSpeakerSubspace256(stat360);
+    }
+
+    function stepLstmLayer(xVec, hPrev, cPrev, kernel, recKernel, bias) {
+      const units = 64;
+      const gates = new Float32Array(256);
+      for (let j = 0; j < 256; j++) gates[j] = bias[j];
+      const inDim = xVec.length;
+      for (let d = 0; d < inDim; d++) {
+        const xv = xVec[d];
+        if (xv === 0.0) continue;
+        const kRow = kernel[d];
+        for (let j = 0; j < 256; j++) gates[j] += xv * kRow[j];
+      }
+      for (let u = 0; u < units; u++) {
+        const hv = hPrev[u];
+        if (hv === 0.0) continue;
+        const rRow = recKernel[u];
+        for (let j = 0; j < 256; j++) gates[j] += hv * rRow[j];
+      }
+      const hNext = new Float32Array(units);
+      const cNext = new Float32Array(units);
+      for (let u = 0; u < units; u++) {
+        const iGate = 1.0 / (1.0 + Math.exp(-gates[u]));
+        const fGate = 1.0 / (1.0 + Math.exp(-gates[units + u]));
+        const cCand = Math.tanh(gates[2 * units + u]);
+        const oGate = 1.0 / (1.0 + Math.exp(-gates[3 * units + u]));
+        const cVal = fGate * cPrev[u] + iGate * cCand;
+        cNext[u] = cVal;
+        hNext[u] = oGate * Math.tanh(cVal);
+      }
+      return { h: hNext, c: cNext };
+    }
+
+    function runLstmV1Model(inputSeq, weights) {
+      const units = 64;
+      const numClasses = weights.classifier_bias.length;
+      let h0 = new Float32Array(units), c0 = new Float32Array(units);
+      let h1 = new Float32Array(units), c1 = new Float32Array(units);
+      const outProbs = [];
+
+      for (let t = 0; t < inputSeq.length; t++) {
+        const s0 = stepLstmLayer(
+          inputSeq[t], h0, c0,
+          weights.lstm_0_kernel, weights.lstm_0_recurrent_kernel, weights.lstm_0_bias
+        );
+        h0 = s0.h; c0 = s0.c;
+
+        const s1 = stepLstmLayer(
+          h0, h1, c1,
+          weights.lstm_1_kernel, weights.lstm_1_recurrent_kernel, weights.lstm_1_bias
+        );
+        h1 = s1.h; c1 = s1.c;
+
+        const fc = new Float32Array(units);
+        for (let j = 0; j < units; j++) {
+          let sum = weights.post_fc_bias[j];
+          for (let u = 0; u < units; u++) sum += h1[u] * weights.post_fc_kernel[u][j];
+          fc[j] = Math.max(0.0, sum);
+        }
+
+        const logits = new Float32Array(numClasses);
+        let maxLogit = -1e9;
+        for (let c = 0; c < numClasses; c++) {
+          let sum = weights.classifier_bias[c];
+          for (let j = 0; j < units; j++) sum += fc[j] * weights.classifier_kernel[j][c];
+          logits[c] = sum;
+          if (sum > maxLogit) maxLogit = sum;
+        }
+        let expSum = 0.0;
+        const probs = new Array(numClasses);
+        for (let c = 0; c < numClasses; c++) {
+          const e = Math.exp(logits[c] - maxLogit);
+          probs[c] = e;
+          expSum += e;
+        }
+        for (let c = 0; c < numClasses; c++) probs[c] /= expSum;
+        outProbs.push(probs);
+      }
+      return outProbs;
     }
 
     function encodeWav16k(samples, sampleRate) {
@@ -539,65 +683,93 @@
       document.getElementById("convAudio").src = convUrl;
 
       const convSamples = await decodeFileTo16kMono(convInput.files[0]);
-      const convMel = extractLogMel40(convSamples);
+      const { mel40: convMel40, mel80: convMel80 } = extractLogMel40And80(convSamples);
 
-      let targetZ = null;
+      let targetEmb = null;
       if (enrInput.files.length) {
         document.getElementById("enrollAudio").src = URL.createObjectURL(enrInput.files[0]);
         const enrSamples = await decodeFileTo16kMono(enrInput.files[0]);
-        const enrMel = extractLogMel40(enrSamples);
-        targetZ = computeCausalSpeakerCoord(enrMel, 0, enrMel.length - 1);
+        const { mel40: enrMel40, mel80: enrMel80 } = extractLogMel40And80(enrSamples);
+        targetEmb = computeSpeakerEmbedding256(enrMel40, enrMel80, 0, enrMel40.length - 1);
       } else {
         document.getElementById("enrollLessChk").checked = true;
       }
 
-      // Compute 30ms frame posteriors (step = 3 frames of 10ms = 480 samples)
-      const numV2Frames = Math.max(1, Math.floor(convMel.length / 3));
-      const env = [];
-      const stdP = [], v1P = [], v2P = [], v2NoEnr = [];
-      let emaCos = 0.0;
-      let emaSpeech = 0.0;
+      const T = convMel40.length;
+      const zeroEmb = new Float32Array(256);
+      const activeEmb = targetEmb !== null ? targetEmb : zeroEmb;
+      const sub = BROWSER_MODEL && BROWSER_MODEL.subspace ? BROWSER_MODEL.subspace : null;
+      const melMeanV1 = sub && sub.mel_mean_v1 ? sub.mel_mean_v1 : null;
+      const melStdV1 = sub && sub.mel_std_v1 ? sub.mel_std_v1 : null;
 
-      for (let i = 0; i < numV2Frames; i++) {
-        const mIdx = Math.min(convMel.length - 1, i * 3 + 1);
-        const sStart = i * 480;
-        const sEnd = Math.min(convSamples.length, (i + 1) * 480);
-        let sumSq = 0.0;
-        for (let s = sStart; s < sEnd; s++) sumSq += convSamples[s] * convSamples[s];
-        const rms = Math.sqrt(sumSq / Math.max(1, sEnd - sStart));
-        env.push(Math.min(1.0, rms * 3.8));
-
-        const m = convMel[mIdx];
-        let vocalE = 0.0;
-        for (let b = 2; b < 34; b++) vocalE += m[b];
-        vocalE /= 32.0;
-        const rawSpeech = 1.0 / (1.0 + Math.exp(-1.6 * (vocalE + 6.6)));
-        emaSpeech = i === 0 ? rawSpeech : (0.65 * emaSpeech + 0.35 * rawSpeech);
-        const pSpeech = Math.min(0.995, Math.max(0.005, emaSpeech));
-        const pNs = 1.0 - pSpeech;
+      // Build standardized 10ms frame inputs for neural LSTM forward pass
+      const scInputs = new Array(T);
+      const etInputs = new Array(T);
+      const setInputs = new Array(T);
+      for (let t = 0; t < T; t++) {
+        const rawM40 = convMel40[t];
+        const m40 = new Float32Array(40);
+        for (let d = 0; d < 40; d++) {
+          m40[d] = melMeanV1 && melStdV1
+            ? (rawM40[d] - melMeanV1[d]) / Math.max(1e-5, melStdV1[d])
+            : rawM40[d];
+        }
+        scInputs[t] = m40;
 
         let cosSim = 0.0;
-        if (targetZ !== null) {
-          const frameZ = computeCausalSpeakerCoord(convMel, Math.max(0, mIdx - 28), mIdx);
-          for (let k = 0; k < targetZ.length; k++) cosSim += frameZ[k] * targetZ[k];
+        if (targetEmb !== null) {
+          const frameEmb = computeSpeakerEmbedding256(
+            convMel40, convMel80, Math.max(0, t - 13), t
+          );
+          for (let k = 0; k < 256; k++) cosSim += frameEmb[k] * targetEmb[k];
+          cosSim = Math.max(-1.0, Math.min(1.0, cosSim));
         }
-        emaCos = i === 0 ? cosSim : (0.72 * emaCos + 0.28 * cosSim);
 
-        const matchProb1 = targetZ !== null
-          ? 1.0 / (1.0 + Math.exp(-5.0 * (emaCos - 0.18)))
-          : 1.0;
-        const matchProb2 = targetZ !== null
-          ? 1.0 / (1.0 + Math.exp(-6.5 * (emaCos - 0.18)))
-          : 1.0;
+        const etVec = new Float32Array(296);
+        etVec.set(m40, 0);
+        etVec.set(activeEmb, 40);
+        etInputs[t] = etVec;
 
-        stdP.push([pSpeech, pNs]);
-        v1P.push([pSpeech * matchProb1, pNs, pSpeech * (1.0 - matchProb1)]);
-        v2P.push([pSpeech * matchProb2, pNs, pSpeech * (1.0 - matchProb2)]);
-        v2NoEnr.push([pSpeech * 0.97, pNs, pSpeech * 0.03]);
+        const setVec = new Float32Array(297);
+        setVec.set(m40, 0);
+        setVec.set(activeEmb, 40);
+        setVec[296] = cosSim;
+        setInputs[t] = setVec;
+      }
+
+      const scFrames = runLstmV1Model(scInputs, BROWSER_MODEL.models.pvad1_sc_baseline);
+      const etFrames = runLstmV1Model(etInputs, BROWSER_MODEL.models.pvad1_et_wpl);
+      const setFrames = runLstmV1Model(setInputs, BROWSER_MODEL.models.pvad1_set_ce);
+
+      // Pool 10ms frames to 30ms display steps (480 samples)
+      const numV2Frames = Math.max(1, Math.floor(T / 3));
+      const env = [];
+      const stdP = [], v1P = [], v2P = [], v2NoEnr = [];
+
+      for (let i = 0; i < numV2Frames; i++) {
+        const mIdx = Math.min(T - 1, i * 3 + 1);
+        const sStart = i * 480;
+        const sEnd = Math.min(convSamples.length, (i + 1) * 480);
+        let maxAbs = 0.0;
+        for (let s = sStart; s < sEnd; s++) {
+          const a = Math.abs(convSamples[s]);
+          if (a > maxAbs) maxAbs = a;
+        }
+        env.push(Math.min(1.0, maxAbs));
+
+        const pSc = scFrames[mIdx];
+        const pEt = etFrames[mIdx];
+        const pSet = setFrames[mIdx];
+
+        stdP.push([pSc[0], pSc[1]]);
+        v1P.push(targetEmb !== null ? [pEt[0], pEt[1], pEt[2]] : [pSc[0], pSc[1], 0.0]);
+        v2P.push(targetEmb !== null ? [pSet[0], pSet[1], pSet[2]] : [pSc[0], pSc[1], 0.0]);
+        v2NoEnr.push([pSc[0], pSc[1], 0.0]);
       }
 
       currentExample = {
-        title: "Custom Uploaded Audio (16 kHz Causal Inference)",
+        title: "Custom Uploaded Audio (16 kHz Client-Side LSTM Inference)",
+        is_custom_upload: true,
         pcm_16k: convSamples,
         waveform_envelope: env,
         std_posteriors: stdP,
@@ -698,9 +870,17 @@
         document.getElementById("filteredAudio").src = activeBlobUrl;
       }
 
+      const isCustom = Boolean(currentExample.is_custom_upload);
+      document.getElementById("stdPlotTitle").textContent = isCustom
+        ? "2. Standard VAD Baseline (SC 2-Layer LSTM, 64K params) — Triggers on All Speakers"
+        : "2. Standard VAD Baseline (B2 Conformer) — Triggers on All Speakers";
       document.getElementById("v2PlotTitle").textContent = enrollLess
-        ? "4. Personal VAD 2.0 Unified (E5) — Enrollment-Less Mode (e_target = 0)"
-        : "4. Personal VAD 2.0 (E3/E5 Conformer + FiLM + Speaker Pre-Net) — Enrolled Target Speaker";
+        ? (isCustom
+            ? "4. Personal VAD 1.0 / 2.0 Fallback — Enrollment-Less Mode (e_target = 0)"
+            : "4. Personal VAD 2.0 Unified (E5) — Enrollment-Less Mode (e_target = 0)")
+        : (isCustom
+            ? "4. Personal VAD (SET 2-Layer LSTM, d-vector + Cosine Conditioning)"
+            : "4. Personal VAD 2.0 (E3/E5 Conformer + FiLM + Speaker Pre-Net) — Enrolled Target Speaker");
 
       drawWaveform(
         document.getElementById("wavCanvas"),
@@ -749,9 +929,9 @@
       };
 
       const rows = [
-        ["Standard VAD (B2)", ...summarize(currentExample.std_posteriors, false)],
+        [isCustom ? "Standard VAD (SC LSTM)" : "Standard VAD (B2)", ...summarize(currentExample.std_posteriors, false)],
         ["Personal VAD 1.0 (ET+WPL)", ...summarize(currentExample.pvad1_posteriors, true)],
-        ["Personal VAD 2.0 (Conformer)", ...summarize(v2Post, true)]
+        [isCustom ? "Personal VAD (SET LSTM)" : "Personal VAD 2.0 (Conformer)", ...summarize(v2Post, true)]
       ];
       const tbody = document.querySelector("#summaryTable tbody");
       tbody.innerHTML = rows

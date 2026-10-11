@@ -22,7 +22,7 @@ metrics:
 
 **This is not an officially supported Google product.**
 
-> **Open-Source Reproduction Notice:** This model is part of an independent open-source reproduction of the **Personal VAD 1.0** ([Ding et al., Odyssey 2020](https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** ([Ding et al., INTERSPEECH 2022](https://arxiv.org/abs/2204.03793)) papers. Because the original papers were developed using internal datasets and infrastructure, this model was trained from scratch using the open-source [`personal-vad`](https://github.com/wq2012/personal_vad) library on the public 8-language **Multilingual LibriSpeech (MLS)** corpus (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`).
+> **Open-Source Reproduction Notice:** This model is part of an independent open-source reproduction of the **Personal VAD 1.0** ([Ding et al., Odyssey 2020](https://arxiv.org/abs/1908.04284)) and **Personal VAD 2.0** ([Ding et al., INTERSPEECH 2022](https://arxiv.org/abs/2204.03793)) papers. Because the original papers were developed using internal datasets and infrastructure, this model was trained from scratch using the open-source [`personal-vad`](https://github.com/wq2012/personal_vad) library on our 8-language **Multilingual LibriSpeech (MLS)** benchmark (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, combining the 7 non-English `facebook/multilingual_librispeech` languages with OpenSLR 12 English LibriSpeech).
 
 ## Model Summary
 
@@ -45,16 +45,16 @@ metrics:
 - `model_config.json`: Serialized `personal_vad.ModelConfig` spec.
 - `model_fp32.tflite`: Unquantized 32-bit float stateful streaming TFLite flatbuffer (`state_in` -> `(probs, state_out)`).
 - `model_quantized.tflite`: 8-bit dynamic-range quantized stateful streaming TFLite flatbuffer for on-device deployment.
-- `speaker_subspace.npz`: Open-set regularized LDA+WCCN+PCA speaker subspace projection matrix (`256`-d L2-normalized d-vectors, trained from scratch on the 98 MLS training speakers).
+- `speaker_subspace.npz`: Open-set regularized LDA+WCCN+PCA speaker subspace projection matrix (`256`-d L2-normalized d-vectors, full rank `256`, trained from scratch on the 98 MLS training speakers).
 - `evaluation_metrics.json`: Full test-set evaluation metrics on 40 unseen multilingual speakers (with utterance-cluster 95% bootstrap CIs).
 
 ## Speaker Embedding (`d-vector`) Extractor Design & Transparency
 
 In the original Personal VAD 1.0 and 2.0 papers, speaker embeddings (`e_target`) and frame-level cosine scores (`s_t`) were extracted using Google's internal 3-layer LSTM speaker verification network (`4.88M` parameters) trained with Generalized End-to-End (`GE2E`) loss on proprietary vendor-collected corpora.
 
-To keep this open-source reproduction completely self-contained in pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX dependencies, **we trained our own lightweight, non-neural open-set 256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`) from scratch on the 98 training speakers (`1,159` utterances) of the 8-language Multilingual LibriSpeech (MLS) dataset** (`16` unseen development speakers / `192` utterances; `40` unseen test speakers / `480` utterances):
-1. **360-D Causal Multi-Resolution Acoustic Summary**: Over voiced speech frames (or a strictly causal 31-frame / ~310 ms sliding window for frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D log-Mel `[mean, std]` (160-D), while the Personal VAD network's acoustic input `x_t` remains 100% pure log-Mel filterbank energies.
-2. **256-D Regularized LDA + WCCN + PCA Projection**: Applies Z-score standardization, projects onto a 256-D discriminative subspace fitted via regularized Linear Discriminant Analysis (LDA), Within-Class Covariance Normalization (WCCN), and orthogonal PCA completion on the 98 training speakers, adds a fixed positive-cone offset on coordinate 255, and L2-normalizes the resulting vector (`||e||_2 = 1`).
+To keep this open-source reproduction completely self-contained in pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX dependencies, **we trained our own lightweight, non-neural open-set 256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, serialized in `speaker_subspace.npz`, `472.8 KB`) from scratch on the 98 training speakers (`1,159` utterances) of the 8-language Multilingual LibriSpeech (MLS) benchmark** (`16` unseen development speakers / `192` utterances; `40` unseen test speakers / `480` utterances):
+1. **360-D Causal Multi-Resolution Acoustic Summary**: Over voiced speech frames (or a strictly causal 14-frame / 140 ms sliding window for frame-level scores `s_t`), it extracts 40-D log-Mel `[mean, std, pos_dev, neg_dev, delta_rms]` (200-D) concatenated with 80-D log-Mel `[mean, std]` (160-D), while the Personal VAD network's acoustic input `x_t` remains 100% pure log-Mel filterbank energies.
+2. **256-D Regularized LDA + WCCN + PCA Projection**: Applies Z-score standardization, projects onto a full-rank 256-D discriminative subspace fitted via regularized Linear Discriminant Analysis (LDA), Within-Class Covariance Normalization (WCCN), and orthogonal PCA completion on the 98 training speakers, adds a fixed positive-cone offset on coordinate 255, and L2-normalizes the resulting vector (`||e||_2 = 1`).
 3. **Unseen-Speaker Verification Accuracy**: On the **16 unseen development speakers** (`192` utterances), `speaker_subspace.npz` achieves an open-set speaker verification **ROC-AUC of `0.9579`**, and on the **40 held-out unseen test speakers** (`480` utterances across 8 languages), it achieves a **ROC-AUC of `0.9449`** (mean positive cosine similarity `0.5424` vs. negative `-0.0166`). Users may also pass any external 256-D L2-normalized neural d-vector directly to `PersonalVadModel` or `PersonalVadInferenceEngine`.
 
 ## Quickstart Usage
@@ -100,7 +100,7 @@ print("TFLite output shape:", probs.shape)
 
 ## Open-Source Multilingual LibriSpeech Benchmark Results
 
-All models were trained on 98 training speakers (`1,159` utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`), validated on 16 unseen dev speakers (`192` utterances), and evaluated on **40 held-out unseen test speakers** (`480` utterances: `120` enrollment + `360` evaluation utterances, zero speaker overlap).
+All models were trained on 98 training speakers (`1,159` utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, combining the 7 non-English `facebook/multilingual_librispeech` languages with OpenSLR 12 English LibriSpeech), validated on 16 unseen dev speakers (`192` utterances), and evaluated on **40 held-out unseen test speakers** (`480` utterances: `120` enrollment + `360` evaluation utterances, zero speaker overlap).
 
 ### Personal VAD 1.0 Models (Concatenated Multi-Speaker Test Set)
 

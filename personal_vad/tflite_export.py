@@ -218,6 +218,9 @@ class TFLitePersonalVadRunner:
     self.chunk_length = int(feat_shape[1])
     self.feature_dim = int(feat_shape[2])
     self._state: Optional[np.ndarray] = None
+    self._base_state: Optional[np.ndarray] = None
+    self._pending_features: list[np.ndarray] = []
+    self._pending_cos: list[float] = []
     self.reset_state()
 
   def reset_state(self) -> Optional[np.ndarray]:
@@ -225,8 +228,12 @@ class TFLitePersonalVadRunner:
     if self._state_in_idx is not None:
       state_shape = tuple(self.input_details[self._state_in_idx]["shape"])
       self._state = np.zeros(state_shape, dtype=np.float32)
+      self._base_state = self._state.copy()
     else:
       self._state = None
+      self._base_state = None
+    self._pending_features = []
+    self._pending_cos = []
     return self._state
 
   def predict_chunk(
@@ -278,12 +285,65 @@ class TFLitePersonalVadRunner:
       ).copy()
     return np.squeeze(output, axis=0)
 
+  def step_frame(
+      self,
+      feature_frame: np.ndarray,
+      speaker_embedding: Optional[np.ndarray] = None,
+      cosine_score: Optional[Union[float, np.ndarray]] = None,
+  ) -> np.ndarray:
+    """Executes a single causal streaming frame step `[num_classes]`.
+
+    Uses causal block-state checkpointing so that stepping 1 frame at a time
+    through a fixed-chunk TFLite flatbuffer produces bit-for-bit identical
+    posteriors to full-chunk streaming without padding state pollution.
+    """
+    frame = np.asarray(feature_frame, dtype=np.float32).reshape(
+        self.feature_dim
+    )
+    self._pending_features.append(frame)
+    if cosine_score is not None:
+      cos_val = float(np.asarray(cosine_score, dtype=np.float32).reshape(-1)[0])
+      self._pending_cos.append(cos_val)
+    elif self._cosine_idx is not None:
+      raise ValueError("TFLite model requires cosine_score input.")
+
+    cur_len = len(self._pending_features)
+    chunk = np.zeros((self.chunk_length, self.feature_dim), dtype=np.float32)
+    chunk[:cur_len] = np.stack(self._pending_features, axis=0)
+
+    cos_chunk = None
+    if self._cosine_idx is not None:
+      cos_chunk = np.zeros((self.chunk_length, 1), dtype=np.float32)
+      cos_chunk[:cur_len, 0] = np.asarray(self._pending_cos, dtype=np.float32)
+
+    base = (
+        self._base_state.copy()
+        if self._base_state is not None
+        else self._state
+    )
+    chunk_out = self.predict_chunk(
+        chunk,
+        speaker_embedding=speaker_embedding,
+        cosine_chunk=cos_chunk,
+        state=base,
+    )
+    frame_out = chunk_out[cur_len - 1].copy()
+
+    if cur_len == self.chunk_length:
+      if self._state is not None:
+        self._base_state = self._state.copy()
+      self._pending_features = []
+      self._pending_cos = []
+    return frame_out
+
   def predict(
       self,
       features: np.ndarray,
       speaker_embedding: Optional[np.ndarray] = None,
       cosine_score: Optional[np.ndarray] = None,
       reset_state: bool = True,
+      chunk_size: Optional[int] = None,
+      stateful: bool = True,
   ) -> np.ndarray:
     """Runs stateful streaming inference over an arbitrary-length sequence.
 
@@ -297,6 +357,9 @@ class TFLitePersonalVadRunner:
       cosine_score: Optional float32 array of shape `[num_frames, 1]` or
         `[num_frames]`.
       reset_state: Whether to reset streaming state before the first chunk.
+      chunk_size: Optional streaming chunk size in frames. Defaults to the
+        flatbuffer's `self.chunk_length`.
+      stateful: Whether to carry recurrent/Conformer state across chunks.
 
     Returns:
       Float32 array of shape `[num_frames, num_classes]` containing frame-level
@@ -315,6 +378,57 @@ class TFLitePersonalVadRunner:
     if reset_state:
       self.reset_state()
 
+    if not stateful:
+      step = (
+          int(chunk_size)
+          if chunk_size is not None and chunk_size > 0
+          else self.chunk_length
+      )
+      step = min(step, self.chunk_length)
+      outputs = []
+      for start in range(0, num_frames, step):
+        self.reset_state()
+        end = min(start + step, num_frames)
+        chunk = features[start:end]
+        pad_len = self.chunk_length - chunk.shape[0]
+        if pad_len > 0:
+          chunk = np.pad(chunk, ((0, pad_len), (0, 0)), mode="constant")
+        cos_chunk = None
+        if cosine_score is not None:
+          cos_arr = np.asarray(cosine_score, dtype=np.float32).reshape(-1, 1)
+          cos_chunk = cos_arr[start:end]
+          if pad_len > 0:
+            cos_chunk = np.pad(
+                cos_chunk, ((0, pad_len), (0, 0)), mode="constant"
+            )
+        chunk_out = self.predict_chunk(
+            chunk, speaker_embedding=speaker_embedding, cosine_chunk=cos_chunk
+        )
+        outputs.append(chunk_out[: end - start])
+      return np.concatenate(outputs, axis=0)
+
+    if (
+        chunk_size is not None
+        and chunk_size != self.chunk_length
+        and chunk_size > 0
+    ):
+      cos_arr = (
+          np.asarray(cosine_score, dtype=np.float32).reshape(-1)
+          if cosine_score is not None
+          else None
+      )
+      frame_outputs = []
+      for t in range(num_frames):
+        c_t = cos_arr[t] if cos_arr is not None else None
+        frame_outputs.append(
+            self.step_frame(
+                features[t],
+                speaker_embedding=speaker_embedding,
+                cosine_score=c_t,
+            )
+        )
+      return np.stack(frame_outputs, axis=0)
+
     outputs = []
     for start in range(0, num_frames, self.chunk_length):
       end = min(start + self.chunk_length, num_frames)
@@ -330,9 +444,19 @@ class TFLitePersonalVadRunner:
         if pad_len > 0:
           cos_chunk = np.pad(cos_chunk, ((0, pad_len), (0, 0)), mode="constant")
 
-      chunk_out = self.predict_chunk(
-          chunk, speaker_embedding=speaker_embedding, cosine_chunk=cos_chunk
+      base = (
+          self._base_state.copy()
+          if self._base_state is not None
+          else self._state
       )
+      chunk_out = self.predict_chunk(
+          chunk,
+          speaker_embedding=speaker_embedding,
+          cosine_chunk=cos_chunk,
+          state=base,
+      )
+      if pad_len == 0 and self._state is not None:
+        self._base_state = self._state.copy()
       outputs.append(chunk_out[: end - start])
 
     return np.concatenate(outputs, axis=0)

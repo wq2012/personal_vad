@@ -302,8 +302,10 @@ def build_model_card(
           "papers were developed using internal datasets and infrastructure, "
           "this model was trained from scratch using the open-source "
           "[`personal-vad`](https://github.com/wq2012/personal_vad) library "
-          "on the public 8-language **Multilingual LibriSpeech (MLS)** corpus "
-          "(`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`)."
+          "on our 8-language **Multilingual LibriSpeech (MLS)** benchmark "
+          "(`de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`, combining the 7 "
+          "non-English `facebook/multilingual_librispeech` languages with "
+          "OpenSLR 12 English LibriSpeech)."
       ),
       "",
       "## Model Summary",
@@ -349,7 +351,8 @@ def build_model_card(
       (
           "- `speaker_subspace.npz`: Open-set regularized LDA+WCCN+PCA speaker "
           "subspace projection matrix (`256`-d L2-normalized d-vectors, "
-          "trained from scratch on the 98 MLS training speakers)."
+          "full rank `256`, trained from scratch on the 98 MLS training "
+          "speakers)."
       ),
       (
           "- `evaluation_metrics.json`: Full test-set evaluation metrics on "
@@ -372,28 +375,29 @@ def build_model_card(
           "pure TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX "
           "dependencies, **we trained our own lightweight, non-neural open-set "
           "256-D speaker subspace extractor (`OpenSetSpeakerSubspace`, "
-          "serialized in `speaker_subspace.npz`) from scratch on the 98 "
-          "training speakers (`1,159` utterances) of the 8-language "
-          "Multilingual LibriSpeech (MLS) dataset** (`16` unseen development "
+          "serialized in `speaker_subspace.npz`, `472.8 KB`) from scratch on "
+          "the 98 training speakers (`1,159` utterances) of the 8-language "
+          "Multilingual LibriSpeech (MLS) benchmark** (`16` unseen development "
           "speakers / `192` utterances; `40` unseen test speakers / `480` "
           "utterances):"
       ),
       (
           "1. **360-D Causal Multi-Resolution Acoustic Summary**: Over voiced "
-          "speech frames (or a strictly causal 31-frame / ~310 ms sliding "
+          "speech frames (or a strictly causal 14-frame / 140 ms sliding "
           "window for frame-level scores `s_t`), it extracts 40-D log-Mel "
-          "`[mean, std, p10, p90, delta_std]` (200-D) concatenated with 80-D "
-          "log-Mel `[mean, std]` (160-D), while the Personal VAD network's "
-          "acoustic input `x_t` remains 100% pure log-Mel filterbank energies."
+          "`[mean, std, pos_dev, neg_dev, delta_rms]` (200-D) concatenated "
+          "with 80-D log-Mel `[mean, std]` (160-D), while the Personal VAD "
+          "network's acoustic input `x_t` remains 100% pure log-Mel "
+          "filterbank energies."
       ),
       (
           "2. **256-D Regularized LDA + WCCN + PCA Projection**: Applies "
-          "Z-score standardization, projects onto a 256-D discriminative "
-          "subspace fitted via regularized Linear Discriminant Analysis (LDA), "
-          "Within-Class Covariance Normalization (WCCN), and orthogonal PCA "
-          "completion on the 98 training speakers, adds a fixed positive-cone "
-          "offset on coordinate 255, and L2-normalizes the resulting vector "
-          "(`||e||_2 = 1`)."
+          "Z-score standardization, projects onto a full-rank 256-D "
+          "discriminative subspace fitted via regularized Linear Discriminant "
+          "Analysis (LDA), Within-Class Covariance Normalization (WCCN), and "
+          "orthogonal PCA completion on the 98 training speakers, adds a fixed "
+          "positive-cone offset on coordinate 255, and L2-normalizes the "
+          "resulting vector (`||e||_2 = 1`)."
       ),
       (
           "3. **Unseen-Speaker Verification Accuracy**: On the **16 unseen "
@@ -453,7 +457,9 @@ def build_model_card(
       (
           "All models were trained on 98 training speakers (`1,159` "
           "utterances) across 8 languages (`de`, `en`, `es`, `fr`, `it`, "
-          "`nl`, `pl`, `pt`), validated on 16 unseen dev speakers (`192` "
+          "`nl`, `pl`, `pt`, combining the 7 non-English "
+          "`facebook/multilingual_librispeech` languages with OpenSLR 12 "
+          "English LibriSpeech), validated on 16 unseen dev speakers (`192` "
           "utterances), and evaluated on **40 held-out unseen test speakers** "
           "(`480` utterances: `120` enrollment + `360` evaluation utterances, "
           "zero speaker overlap)."
@@ -589,6 +595,36 @@ def build_model_card(
   return "\n".join(lines)
 
 
+def _export_lstm_v1_weights(
+    eng: personal_vad.PersonalVadInferenceEngine,
+) -> dict[str, Any]:
+  """Exports 2-layer 64-unit LSTM + post_fc + classifier weights to JSON."""
+  w_map = {w.path.split("/", 1)[-1]: w.numpy() for w in eng.model.weights}
+
+  def _r1(arr: np.ndarray) -> list[float]:
+    return [round(float(x), 5) for x in arr.reshape(-1)]
+
+  def _r2(arr: np.ndarray) -> list[list[float]]:
+    return [[round(float(x), 5) for x in row] for row in arr]
+
+  return {
+      "lstm_0_kernel": _r2(w_map["lstm_0/lstm_cell/kernel"]),
+      "lstm_0_recurrent_kernel": _r2(
+          w_map["lstm_0/lstm_cell/recurrent_kernel"]
+      ),
+      "lstm_0_bias": _r1(w_map["lstm_0/lstm_cell/bias"]),
+      "lstm_1_kernel": _r2(w_map["lstm_1/lstm_cell/kernel"]),
+      "lstm_1_recurrent_kernel": _r2(
+          w_map["lstm_1/lstm_cell/recurrent_kernel"]
+      ),
+      "lstm_1_bias": _r1(w_map["lstm_1/lstm_cell/bias"]),
+      "post_fc_kernel": _r2(w_map["post_fc/kernel"]),
+      "post_fc_bias": _r1(w_map["post_fc/bias"]),
+      "classifier_kernel": _r2(w_map["classifier/kernel"]),
+      "classifier_bias": _r1(w_map["classifier/bias"]),
+  }
+
+
 def generate_hf_space_examples(
     mls_dir: str,
     pretrained_root: str,
@@ -600,24 +636,52 @@ def generate_hf_space_examples(
   with open(test_manifest, "r", encoding="utf-8") as f:
     records = json.load(f)
 
-  # Export browser_model.json for client-side speaker subspace projection
+  sc_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad1_sc_baseline")
+  )
+  std_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad2_b2_conformer_std_vad")
+  )
+  v1_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad1_et_wpl")
+  )
+  v1_set_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad1_set_ce")
+  )
+  v2_e3_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad2_e3_conformer_film_dvector_cos")
+  )
+  v2_e5_eng = personal_vad.load_pretrained(
+      os.path.join(pretrained_root, "pvad2_e5_conformer_unified")
+  )
+
+  # Export browser_model.json with full 360->256 subspace + 2L LSTM weights
   subspace_path = os.path.join(
       pretrained_root, "pvad1_et_wpl", "speaker_subspace.npz"
   )
   if os.path.exists(subspace_path):
-    sub = np.load(subspace_path)
-    if (
-        "mel_mean_v1" in sub
-        and "mel_std_v1" in sub
-        and "w_x_v1" in sub
-    ):
+    with np.load(subspace_path) as sub:
+      proj_bias_arr = (
+          [round(float(x), 5) for x in np.asarray(sub["proj_bias"]).reshape(-1)]
+          if "proj_bias" in sub
+          else [0.0] * 255 + [0.35]
+      )
       browser_model = {
-          "mel_mean_v1": [round(float(x), 5) for x in sub["mel_mean_v1"]],
-          "mel_std_v1": [round(float(x), 5) for x in sub["mel_std_v1"]],
-          "w_x_v1": [
-              [round(float(v), 5) for v in row[:32]]
-              for row in sub["w_x_v1"]
-          ],
+          "subspace": {
+              "mean": [round(float(x), 5) for x in sub["feat_mean"]],
+              "std": [round(float(x), 5) for x in sub["feat_std"]],
+              "proj_lda": [
+                  [round(float(v), 5) for v in row] for row in sub["proj_lda"]
+              ],
+              "proj_bias": proj_bias_arr,
+              "mel_mean_v1": [round(float(x), 5) for x in sub["mel_mean_v1"]],
+              "mel_std_v1": [round(float(x), 5) for x in sub["mel_std_v1"]],
+          },
+          "models": {
+              "pvad1_sc_baseline": _export_lstm_v1_weights(sc_eng),
+              "pvad1_et_wpl": _export_lstm_v1_weights(v1_eng),
+              "pvad1_set_ce": _export_lstm_v1_weights(v1_set_eng),
+          },
       }
       with open(
           os.path.join(space_examples_dir, "browser_model.json"),
@@ -628,7 +692,7 @@ def generate_hf_space_examples(
 
   by_spk: dict[str, dict[str, list[dict[str, Any]]]] = {}
   for r in records:
-    key = f"{r['language']}_{r['speaker_id']}"
+    key = str(r["speaker_id"])
     by_spk.setdefault(key, {"enroll": [], "eval": []})
     bucket = "enroll" if r["role"] == "enroll" else "eval"
     by_spk[key][bucket].append(r)
@@ -636,18 +700,6 @@ def generate_hf_space_examples(
   valid_spks = [
       k for k, v in by_spk.items() if v["enroll"] and len(v["eval"]) >= 2
   ]
-  std_eng = personal_vad.load_pretrained(
-      os.path.join(pretrained_root, "pvad2_b2_conformer_std_vad")
-  )
-  v1_eng = personal_vad.load_pretrained(
-      os.path.join(pretrained_root, "pvad1_et_wpl")
-  )
-  v2_e3_eng = personal_vad.load_pretrained(
-      os.path.join(pretrained_root, "pvad2_e3_conformer_film_dvector_cos")
-  )
-  v2_e5_eng = personal_vad.load_pretrained(
-      os.path.join(pretrained_root, "pvad2_e5_conformer_unified")
-  )
 
   pairings = [
       (
@@ -677,7 +729,6 @@ def generate_hf_space_examples(
   ]
 
   examples_payload = []
-  rng = np.random.default_rng(2026)
 
   for idx, (s_a_idx, s_b_idx, s_c_idx, title) in enumerate(pairings, start=1):
     spk_a = valid_spks[s_a_idx % len(valid_spks)]
@@ -688,7 +739,7 @@ def generate_hf_space_examples(
     enroll_wav, sr = sf.read(enroll_path_src, dtype="float32")
     if enroll_wav.ndim > 1:
       enroll_wav = np.mean(enroll_wav, axis=-1)
-    enroll_wav = enroll_wav[: int(2.2 * sr)]
+    enroll_wav = enroll_wav[: int(3.0 * sr)]
 
     def _clip(spk_key: str, slot: int) -> np.ndarray:
       p = by_spk[spk_key]["eval"][slot % len(by_spk[spk_key]["eval"])][
@@ -697,11 +748,19 @@ def generate_hf_space_examples(
       w, _ = sf.read(p, dtype="float32")
       if w.ndim > 1:
         w = np.mean(w, axis=-1)
-      w = w[: int(1.8 * sr)]
+      w = w[: int(2.8 * sr)]
       pk = float(np.max(np.abs(w)))
       if pk > 1e-4:
         w = w / pk * 0.85
-      sil = rng.normal(0.0, 1e-4, size=(int(0.20 * sr),)).astype(np.float32)
+      win = 400
+      n_wins = max(len(w) // win, 1)
+      trimmed = w[: n_wins * win].reshape(n_wins, win)
+      win_rms = np.sqrt(np.mean(trimmed**2, axis=-1))
+      quiet_idx = int(np.argmin(win_rms))
+      room_tone_unit = trimmed[quiet_idx] * 0.25
+      pad_len = int(0.18 * sr)
+      reps = int(np.ceil(pad_len / max(len(room_tone_unit), 1)))
+      sil = np.tile(room_tone_unit, reps)[:pad_len].astype(np.float32)
       return np.concatenate([sil, w, sil], axis=0)
 
     if idx == 1:
@@ -861,7 +920,7 @@ def upload_to_huggingface(
         repo_type="model",
         folder_path=folder,
         commit_message=(
-            f"Update {meta['title']} v0.2.0 checkpoints, stateful TFLite "
+            f"Update {meta['title']} v0.2.1 checkpoints, stateful TFLite "
             "models, and 8-language unseen-speaker metrics"
         ),
     )
@@ -881,7 +940,7 @@ def upload_to_huggingface(
       repo_type="space",
       folder_path=hf_space_dir,
       commit_message=(
-          "Update Personal VAD 1.0 & 2.0 interactive demo Space (v0.2.0)"
+          "Update Personal VAD 1.0 & 2.0 interactive demo Space (v0.2.1)"
       ),
   )
   print("All Hugging Face models and Space uploaded successfully.")

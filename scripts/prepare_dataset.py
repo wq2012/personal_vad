@@ -250,7 +250,7 @@ def fit_lda_wccn_subspace(
 
   proj_bias = np.zeros((output_dim,), dtype=np.float32)
   proj_bias[-1] = 0.45
-  proj_lda[:, -1] = 0.0
+  proj_lda[:, -1] *= 0.05
 
   # Fit linear ridge-regression acoustic-to-speaker-subspace warm-start maps
   # on the training set (mapping pure normalized log-Mel x_t to top 32 speaker
@@ -320,7 +320,10 @@ def fit_lda_wccn_subspace(
       "feat_std": feat_std.astype(np.float32),
       "proj_lda": proj_lda,
       "proj_bias": proj_bias,
-      "subspace_rank": np.array(lda_rank, dtype=np.int32),
+      "subspace_rank": np.array(
+          int(np.linalg.matrix_rank(proj_lda)), dtype=np.int32
+      ),
+      "lda_rank": np.array(lda_rank, dtype=np.int32),
       "output_dim": np.array(output_dim, dtype=np.int32),
       "energy_threshold": np.array(energy_threshold, dtype=np.float32),
       "mel_mean_v1": mel_mean_v1,

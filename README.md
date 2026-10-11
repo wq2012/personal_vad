@@ -33,10 +33,12 @@ Interspeech 2022 papers:
 > and internal streaming on-device ASR evaluation pipelines). Instead, all
 > modules, training scripts, evaluation suites, speaker embedding extractors,
 > and pretrained checkpoints in this repository are newly implemented from
-> scratch using open-source [`lingvo`](https://github.com/tensorflow/lingvo),
-> `tensorflow`, and `numpy`/`scipy`, and trained on the open-source 8-language
-> **Multilingual LibriSpeech (MLS)** corpus (`de`, `en`, `es`, `fr`, `it`,
-> `nl`, `pl`, `pt`).
+> scratch using standard open-source `tensorflow` / `keras`, `numpy`, and
+> `scipy` (with zero proprietary or `lingvo` runtime dependencies), and trained
+> on an 8-language **Multilingual LibriSpeech (MLS)** benchmark (`de`, `en`,
+> `es`, `fr`, `it`, `nl`, `pl`, `pt`, combining the 7 non-English
+> `facebook/multilingual_librispeech` splits with OpenSLR 12 English
+> LibriSpeech `train-clean-100`, `dev-clean`, and `test-clean`).
 
 **Personal VAD** detects frame-level voice activity of a specific **target
 speaker** in multi-speaker and noisy acoustic environments, serving as a
@@ -129,16 +131,16 @@ Because that internal speaker verification model and its training corpora are
 proprietary—and to keep this open-source package 100% self-contained in pure
 TensorFlow/NumPy with zero external PyTorch/SpeechBrain/JAX runtime
 dependencies—**we trained our own lightweight, open-set 256-D speaker embedding
-extractor (`OpenSetSpeakerSubspace`, serialized as `speaker_subspace.npz`, ~370 KB)
+extractor (`OpenSetSpeakerSubspace`, serialized as `speaker_subspace.npz`, `472.8 KB`, full rank `256`)
 from scratch on the 98 training speakers (`1,159` utterances) of the 8-language
-Multilingual LibriSpeech (MLS) dataset**:
+Multilingual LibriSpeech (MLS) benchmark**:
 
 1. **Multi-Resolution Voiced Acoustic Summary (360-D)**:
-   - Over voiced speech frames (or over a strictly causal 31-frame / ~310 ms
+   - Over voiced speech frames (or over a strictly causal 14-frame / 140 ms
      sliding window when computing frame-level embeddings `e_t` and cosine
      scores `s_t` for Personal VAD 1.0 `SC`, `ST`, and `SET`), the extractor
      computes a 360-dimensional acoustic statistic vector combining 40-D log-Mel
-     `[mean, std, 10th-percentile, 90th-percentile, delta_std]` (200-D) with
+     `[mean, std, pos_dev, neg_dev, delta_rms]` (200-D) with
      high-resolution 80-D log-Mel `[mean, std]` (160-D), while the Personal VAD
      network's acoustic input `x_t` remains 100% pure log-Mel filterbank
      energies.
@@ -147,11 +149,11 @@ Multilingual LibriSpeech (MLS) dataset**:
      across `de`, `en`, `es`, `fr`, `it`, `nl`, `pl`, `pt`), it standardizes
      the 360-D summary vector, solves the regularized **Linear Discriminant
      Analysis (LDA)** generalized eigenvalue problem between inter-speaker and
-     intra-speaker scatter matrices, applies **Within-Class Covariance
-     Normalization (WCCN)**, completes the orthogonal basis to 256 dimensions
-     via PCA on the residual subspace, adds a fixed positive-cone offset on
-     coordinate 255, and L2-normalizes the resulting 256-D speaker embedding
-     (`||e||_2 = 1`).
+     intra-speaker scatter matrices (`lda_rank = 97`), applies **Within-Class
+     Covariance Normalization (WCCN)**, completes the full-rank orthogonal
+     basis to 256 dimensions (`subspace_rank = 256`) via PCA on the residual
+     subspace, adds a fixed positive-cone offset on coordinate 255, and
+     L2-normalizes the resulting 256-D speaker embedding (`||e||_2 = 1`).
 3. **Open-Set Unseen-Speaker Verification Accuracy**:
    - Validated on **16 held-out unseen development speakers** (`192` utterances),
      `speaker_subspace.npz` achieves an open-set speaker verification
@@ -356,9 +358,10 @@ Non-Concat Standard VAD Speech AP (`0.9473 -> 0.9644`), and Concat Standard VAD
 | [`wq2012/personal-vad-v2-conformer-film-dvector-cos`](https://huggingface.co/wq2012/personal-vad-v2-conformer-film-dvector-cos) | **E3 / E4** | 4L Conformer + Pre-Net & `d-vector` FiLM | 1,091,267 | 1367.1 KB | 0.8673 | 0.8360 | 0.9454 | 0.8688 | **0.8830** (`[0.8706, 0.8946]`) | **0.7222** | **0.8831** |
 | [`wq2012/personal-vad-v2-conformer-unified`](https://huggingface.co/wq2012/personal-vad-v2-conformer-unified) | **E5** | 4L Conformer + Pre-Net & `d-vector` FiLM + Alg. 1 | 1,091,267 | 1367.1 KB | 0.7919 | 0.6773 | 0.9265 | 0.7327 | 0.7850 (`[0.7639, 0.8038]`) | 0.6203 | 0.7849 |
 
-*Note on Personal VAD 2.0 Ablation Trajectory*: Our open-source reproduction on
-8-language MLS reproduces every architectural finding from Table 1 of
-Personal VAD 2.0 ([arXiv:2204.03793](https://arxiv.org/pdf/2204.03793)):
+*Note on Personal VAD 2.0 Ablation Trajectory & Implementation Details*: Our
+open-source reproduction on the 8-language MLS benchmark evaluates frame-level
+AP and micro-averaged `mAP` (whereas Paper 2 reported downstream streaming ASR
+`WER %` using a proprietary 40M-parameter ASR model):
 1. **Conformer vs. LSTM (`B0 -> E0`)**: Replacing the 3-layer LayerNorm LSTM
    (`B0`, `2012.2 KB`, Concat `mAP = 0.7037`, MTR `mAP = 0.5420`) with the
    4-layer causal Conformer (`E0`, `881.0 KB`, Concat `mAP = 0.7865`, MTR
@@ -369,13 +372,23 @@ Personal VAD 2.0 ([arXiv:2204.03793](https://arxiv.org/pdf/2204.03793)):
    input concatenation (`E0`, `mAP = 0.7865`) to FiLM d-vector modulation
    (`E1`, `mAP = 0.8436`), Speaker Pre-Net cosine FiLM (`E2`, `mAP = 0.8788`),
    and combined Speaker Pre-Net + d-vector FiLM (`E3`, **`mAP = 0.8830`**,
-   MTR `mAP = 0.7222`) yields monotonic improvements across multi-speaker test
-   sets.
+   MTR `mAP = 0.7222`) yields monotonic improvements across multi-speaker
+   concatenated test sets (while `E2` achieves slightly higher single-speaker
+   Non-Concat `mAP` than `E3`: `0.8742` vs. `0.8673`).
 3. **8-Bit Dynamic Range Quantization (`E4`)**: Quantizing `E3` to 8-bit
    stateful TFLite (`E4`) reduces model size from `4391.4 KB` (`model_fp32.tflite`)
    to `1367.1 KB` (`model_quantized.tflite`, 3.21x compression) while achieving
    **`0.8831` Clean Concat `mAP`** (`0.8674` Non-Concat `mAP`, zero quantization
    degradation).
+4. **Open-Source Training & Architectural Details**: To train the Conformer and
+   Speaker Pre-Net effectively from scratch on 98 speakers without a pretrained
+   4.88M-parameter GE2E speaker network, `FeatureWiseModulationLayer`
+   (`FiLMLayer`) includes a stabilizing identity residual connection
+   (`apply_residual=True`, `(1 + gamma) * x + beta`), `ConformerBlock` provides
+   optional `CausalPositionalEncoding`, and `scripts/train.py` uses AdamW
+   (`lr = 2.5e-3`, `8` epochs over counterfactual multi-target mixtures) with an
+   auxiliary cosine-alignment MSE loss (`weight = 0.8`, target `+1.0` on `tss`
+   frames and `-0.2` on `ntss` frames).
 
 #### C. Standard VAD Baselines & Enrollment-Less Fallback Evaluation (`e_target = 0`, Algorithm 1)
 

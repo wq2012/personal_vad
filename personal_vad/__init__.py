@@ -5,7 +5,7 @@ from . import dataset
 from . import eval_lib
 from . import online_percentile
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 FrameLabel = configs.FrameLabel
 ConditioningMode = configs.ConditioningMode
@@ -17,6 +17,7 @@ ModelConfig = configs.ModelConfig
 DatasetConfig = configs.DatasetConfig
 
 UtteranceData = dataset.UtteranceData
+OpenSetSpeakerSubspace = dataset.OpenSetSpeakerSubspace
 concat_utterance_sequence = dataset.concat_utterance_sequence
 concat_utterance_group = dataset.concat_utterance_group
 convert_alignment_for_vad_baseline = dataset.convert_alignment_for_vad_baseline
@@ -50,6 +51,8 @@ try:
   load_pretrained = inference.load_pretrained
 
   FeatureWiseModulationLayer = layers.FeatureWiseModulationLayer
+  FiLMLayer = layers.FiLMLayer
+  CausalPositionalEncoding = layers.CausalPositionalEncoding
   ConformerBlock = layers.ConformerBlock
   SpeakerPreNet = layers.SpeakerPreNet
 

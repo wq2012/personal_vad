@@ -92,6 +92,13 @@ class LayersTest(unittest.TestCase):
     zero_sim = prenet(features, zero_emb, training=False).numpy()
     np.testing.assert_allclose(zero_sim, 0.0, atol=1e-6)
 
+  def test_film_alias_and_positional_encoding(self):
+    self.assertIs(layers.FiLMLayer, layers.FeatureWiseModulationLayer)
+    pos_enc = layers.CausalPositionalEncoding(model_dim=16)
+    x = tf.zeros([2, 5, 16], dtype=tf.float32)
+    out = pos_enc(x)
+    self.assertEqual(out.shape, (2, 5, 16))
+
 
 if __name__ == "__main__":
   unittest.main()

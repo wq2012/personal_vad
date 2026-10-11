@@ -128,6 +128,20 @@ class DatasetTest(unittest.TestCase):
     self.assertTrue(np.all(np.isfinite(aug)))
     self.assertGreater(float(np.max(np.abs(aug - wav))), 1e-4)
 
+  def test_open_set_speaker_subspace(self):
+    rng = np.random.default_rng(11)
+    w = rng.standard_normal((360, 256)).astype(np.float32)
+    sub = dataset.OpenSetSpeakerSubspace({
+        "feat_mean": np.zeros((360,), dtype=np.float32),
+        "feat_std": np.ones((360,), dtype=np.float32),
+        "proj_lda": w,
+        "proj_bias": np.zeros((256,), dtype=np.float32),
+    })
+    self.assertEqual(sub.rank, 256)
+    emb = sub.project_stats(np.ones((360,), dtype=np.float32))
+    self.assertEqual(emb.shape, (256,))
+    self.assertAlmostEqual(float(np.linalg.norm(emb)), 1.0, places=5)
+
 
 if __name__ == "__main__":
   unittest.main()

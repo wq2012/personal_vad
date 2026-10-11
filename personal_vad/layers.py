@@ -576,3 +576,38 @@ class SpeakerPreNet(tf.keras.layers.Layer):
         prenet_embeddings, target_embedding
     )
     return cosine_sim, new_caches
+
+
+class CausalPositionalEncoding(tf.keras.layers.Layer):
+  """Causal sinusoidal positional encoding for streaming Conformer blocks."""
+
+  def __init__(
+      self,
+      model_dim: int = 64,
+      max_len: int = 4096,
+      scale: float = 0.1,
+      name: str = "causal_pos_enc",
+  ):
+    super().__init__(name=name)
+    self.model_dim = model_dim
+    self.max_len = max_len
+    self.scale = scale
+
+  def call(self, inputs: tf.Tensor, start_index: int = 0) -> tf.Tensor:
+    """Adds causal sinusoidal positional encoding starting at `start_index`."""
+    seq_len = tf.shape(inputs)[1]
+    pos = tf.cast(tf.range(start_index, start_index + seq_len), tf.float32)
+    pos = tf.expand_dims(pos, axis=1)
+    half_dim = max(self.model_dim // 2, 1)
+    div_term = tf.exp(
+        tf.cast(tf.range(0, half_dim), tf.float32)
+        * (-tf.math.log(10000.0) / tf.cast(half_dim, tf.float32))
+    )
+    angles = pos * tf.expand_dims(div_term, axis=0)
+    pe = tf.concat([tf.sin(angles), tf.cos(angles)], axis=-1)
+    pe = pe[:, : self.model_dim]
+    return inputs + self.scale * tf.expand_dims(pe, axis=0)
+
+
+# Alias matching Personal VAD 2.0 paper / appendix terminology
+FiLMLayer = FeatureWiseModulationLayer

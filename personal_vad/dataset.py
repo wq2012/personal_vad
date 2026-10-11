@@ -552,3 +552,55 @@ def create_tf_dataset(
         reshuffle_each_iteration=True,
     )
   return ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+
+class OpenSetSpeakerSubspace:
+  """Regularized LDA + WCCN + PCA open-set speaker subspace (360-D -> 256-D).
+
+  Wraps the speaker subspace parameters (`feat_mean`, `feat_std`, `proj_lda`,
+  `proj_bias`, `energy_threshold`, `mel_mean_v1`, `mel_std_v1`, `mel_mean_v2`,
+  `mel_std_v2`) stored in `speaker_subspace.npz` and provides causal frame and
+  utterance d-vector projection without requiring proprietary server-side
+  speaker verification weights.
+  """
+
+  def __init__(self, params: dict[str, np.ndarray]):
+    self.params = {k: np.asarray(v) for k, v in params.items()}
+    self.feat_mean = np.asarray(self.params["feat_mean"], dtype=np.float32)
+    self.feat_std = np.asarray(self.params["feat_std"], dtype=np.float32)
+    self.proj_lda = np.asarray(self.params["proj_lda"], dtype=np.float32)
+    self.proj_bias = np.asarray(
+        self.params.get(
+            "proj_bias", np.zeros((self.proj_lda.shape[1],), dtype=np.float32)
+        ),
+        dtype=np.float32,
+    )
+    self.energy_threshold = float(
+        np.asarray(self.params.get("energy_threshold", -7.5)).reshape(-1)[0]
+    )
+
+  @classmethod
+  def from_npz(cls, npz_path: str) -> "OpenSetSpeakerSubspace":
+    """Loads an `OpenSetSpeakerSubspace` from a `.npz` archive."""
+    with np.load(npz_path) as data:
+      return cls({k: data[k] for k in data.files})
+
+  def save_npz(self, npz_path: str) -> None:
+    """Saves the speaker subspace parameters to a `.npz` archive."""
+    np.savez(npz_path, **self.params)
+
+  def to_dict(self) -> dict[str, np.ndarray]:
+    """Returns the dictionary of NumPy arrays."""
+    return dict(self.params)
+
+  @property
+  def rank(self) -> int:
+    """Returns the numerical rank of the `360 x 256` projection matrix."""
+    return int(np.linalg.matrix_rank(self.proj_lda))
+
+  def project_stats(self, stats_360: np.ndarray) -> np.ndarray:
+    """Projects 360-dim statistics `[..., 360]` to L2-normalized 256-dim."""
+    arr = np.asarray(stats_360, dtype=np.float32)
+    x_norm = (arr - self.feat_mean) / np.maximum(self.feat_std, 1e-5)
+    emb = x_norm @ self.proj_lda + self.proj_bias
+    return l2_normalize_numpy(emb, axis=-1)
